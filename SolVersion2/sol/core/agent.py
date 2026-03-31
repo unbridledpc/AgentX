@@ -501,6 +501,8 @@ class Agent:
         low = t.lower()
         if not t:
             return False
+        if self._is_tool_design_request(t):
+            return False
 
         has_path = bool(self._extract_path(t) or self._extract_drive_root(t))
         has_url = bool(self._extract_url(t))
@@ -561,6 +563,8 @@ class Agent:
 
         t = (user_text or "").strip()
         if not t:
+            return []
+        if self._is_tool_design_request(t):
             return []
         if self._is_web_verification_intent(t) and bool(self.ctx.cfg.web.enabled):
             return self._plan_web_verify(t)
@@ -1613,6 +1617,8 @@ class Agent:
 
         text = (user_message or "").strip()
         if not text:
+            return Plan(steps=tuple())
+        if self._is_tool_design_request(text):
             return Plan(steps=tuple())
 
         tool_steps = self._plan_from_tool_commands(text)
@@ -2685,6 +2691,23 @@ class Agent:
                 "replace its contents",
                 "replace the contents",
                 "replace contents",
+            )
+        )
+
+    def _is_tool_design_request(self, text: str) -> bool:
+        low = (text or "").lower()
+        return any(
+            phrase in low
+            for phrase in (
+                "design a tool",
+                "create a tool spec",
+                "create tool spec",
+                "tool spec for",
+                "define a skill",
+                "define skill",
+                "make a tool that",
+                "make a tool to",
+                "design a skill",
             )
         )
 

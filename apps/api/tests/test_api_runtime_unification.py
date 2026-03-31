@@ -22,7 +22,7 @@ from sol.core.unsafe_mode import disable as disable_unsafe
 from sol.core.unsafe_mode import enable as enable_unsafe
 from sol.core.working_memory import WorkingMemoryManager
 from sol.runtime.paths import build_runtime_paths, ensure_runtime_dirs
-from sol.tools.fs import FsDeleteTool, FsReadTool, FsWriteTool
+from sol.tools.fs import FsDeleteTool, FsListTool, FsReadTool, FsWriteTool
 from sol.tools.registry import ToolRegistry
 from conftest import write_test_config
 
@@ -53,6 +53,7 @@ def _build_live_agent(tmp_path: Path) -> tuple[Agent, Path]:
     registry.register(FsWriteTool())
     registry.register(FsReadTool())
     registry.register(FsDeleteTool())
+    registry.register(FsListTool())
     agent = Agent.create(ctx=ctx, tools=registry)
     work_dir = agent.ctx.cfg.paths.working_dir.resolve(strict=False)
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -345,3 +346,77 @@ def test_chat_live_route_clarifies_when_read_target_is_unknown_and_does_not_hall
     assert "fs.read_text: OK" not in payload["content"]
     assert "could not be determined" in payload["content"].lower()
     assert "hello" not in payload["content"].lower()
+
+
+def test_chat_live_route_design_request_does_not_trigger_filesystem_tools(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, work_dir = _build_live_agent(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+    prompt = "I need you to design a tool that will allow you to read the contents of files located on the system"
+    response = client.post("/v1/chat", json={"message": prompt, "thread_id": None})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "fs.list" not in payload["content"]
+    assert "fs.read_text" not in payload["content"]
+    assert "fs.write_text" not in payload["content"]
+    assert "Could not determine a path to list" not in payload["content"]
+    assert "Sol says:" in payload["content"]
+    assert not (work_dir / "named").exists()
+    assert not (work_dir / "at").exists()
+    assert sorted(item.name for item in work_dir.iterdir()) == ["_posix_root"]
+
+
+def test_chat_live_route_list_files_still_triggers_filesystem_tool(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, work_dir = _build_live_agent(tmp_path)
+    target_dir = work_dir / "_posix_root" / "home" / "nexus"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+    response = client.post("/v1/chat", json={"message": "list files in /home/nexus", "thread_id": None})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "fs.list: OK" in payload["content"]
+    assert "alpha.txt" in payload["content"]

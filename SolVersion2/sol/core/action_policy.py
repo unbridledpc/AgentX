@@ -57,6 +57,15 @@ class ActionSelectionPolicy:
                 use_plan=True,
             )
 
+        if self.agent._is_tool_design_request(text):
+            return ActionDecision(
+                action="design_response",
+                reason="Request is asking to design or define a tool/skill, not execute one.",
+                evidence=("tool_design_request",),
+                use_llm=True,
+                use_retrieval_context=bool(retrieved),
+            )
+
         if self.agent._is_time_sensitive_query(text) and bool(self.agent.ctx.cfg.agent.auto_web_verify) and bool(self.agent.ctx.cfg.web.enabled):
             return ActionDecision(
                 action="web_verify",
