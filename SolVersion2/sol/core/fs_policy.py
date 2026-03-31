@@ -87,10 +87,25 @@ def validate_path(raw: str | Path, *, cfg: SolConfig, for_write: bool) -> Valida
     if drv and drv in denied_drives:
         raise FsPolicyError(f"Drive {drv}: is denied.")
 
-    if not cfg.fs.allowed_roots:
+    implicit_roots = []
+    for candidate in (
+        getattr(getattr(cfg, "paths", None), "app_root", None),
+        getattr(getattr(cfg, "paths", None), "working_dir", None),
+    ):
+        if candidate is None:
+            continue
+        try:
+            implicit_roots.append(Path(candidate).resolve())
+        except Exception:
+            continue
+
+    configured_roots = tuple(cfg.fs.allowed_roots or ())
+    effective_roots = tuple(dict.fromkeys(list(configured_roots) + implicit_roots))
+
+    if not effective_roots:
         raise FsPolicyError("No allowed_roots configured.")
 
-    allowed = any(_is_within_root(resolved, root) for root in cfg.fs.allowed_roots)
+    allowed = any(_is_within_root(resolved, root) for root in effective_roots)
     if not allowed:
         raise FsPolicyError("Path is outside allowed_roots.")
 

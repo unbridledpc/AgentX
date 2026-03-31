@@ -25,7 +25,7 @@ from sol.core.evidence import EvidenceSource, ExtractedClaim, build_bundle, clas
 from sol.tools.base import ToolExecutionError, ToolValidationError
 from sol.tools.registry import ToolRegistry
 from sol.core.types import VerificationLevel
-from sol.core.runtime_models import AgentResult, Plan, PlanStep, ToolResult
+from sol.core.runtime_models import AgentResult, Plan, PlanStep, RequestAssessment, ToolError, ToolResult
 from sol.core.working_memory import WorkingMemoryManager
 
 
@@ -480,8 +480,129 @@ class Agent:
             "i dont have real-time data",
             "i can't access real-time",
             "i cannot access real-time",
+            "i can't access your files",
+            "i cannot access your files",
+            "i dont have access to local files",
+            "i don't have access to local files",
+            "i can't inspect the repo",
+            "i cannot inspect the repo",
+            "i'm unable to inspect the repo",
+            "im unable to inspect the repo",
         )
         return any(p in t for p in patterns)
+
+    def assess_request(self, user_text: str) -> RequestAssessment:
+        text = (user_text or "").strip()
+        if not text:
+            return RequestAssessment(mode="discuss", intent="empty", requires_tools=False)
+
+        target_path = self._extract_path(text) or self._extract_drive_root(text) or self._resolve_contextual_file_path(text)
+        target_paths = (target_path,) if target_path else tuple()
+        repo_query = self._extract_repo_query(text) if self._is_repo_inspection_request(text) else None
+        evidence: list[str] = []
+        missing: list[str] = []
+        intent = "direct_answer"
+        mode = "discuss"
+        requires_tools = False
+        confidence = 0.25
+        should_ground = False
+
+        if self._is_tool_design_request(text):
+            return RequestAssessment(
+                mode="plan",
+                intent="tool_design",
+                requires_tools=False,
+                confidence=0.95,
+                evidence=("tool_design_request",),
+            )
+
+        if self._is_plan_request(text):
+            return RequestAssessment(
+                mode="plan",
+                intent="planning",
+                requires_tools=False,
+                confidence=0.85,
+                evidence=("plan_language",),
+            )
+
+        if self._is_repo_inspection_request(text):
+            intent = "repo_inspect"
+            mode = "inspect"
+            requires_tools = True
+            should_ground = True
+            confidence = 0.9 if repo_query else 0.65
+            evidence.extend(["repo_request"])
+            if repo_query:
+                evidence.append("repo_query")
+            else:
+                missing.append("repo query")
+            return RequestAssessment(
+                mode=mode,
+                intent=intent,
+                requires_tools=requires_tools,
+                target_paths=target_paths,
+                missing_arguments=tuple(missing),
+                confidence=confidence,
+                evidence=tuple(evidence),
+                repo_query=repo_query,
+                should_ground_response=should_ground,
+            )
+
+        if self._is_file_delete_intent(text):
+            intent = "file_delete"
+            mode = "execute"
+            requires_tools = True
+            should_ground = True
+            confidence = 0.95
+            evidence.extend(["file_delete"])
+            if not target_paths:
+                missing.append("target path")
+        elif self._is_file_write_intent(text):
+            intent = "file_write"
+            mode = "transform"
+            requires_tools = True
+            should_ground = True
+            confidence = 0.95
+            evidence.extend(["file_write"])
+            if not target_paths:
+                missing.append("target path")
+            content = self._extract_write_content(text)
+            if content is None and self._is_file_edit_intent(text):
+                missing.append("replacement content")
+        elif self._is_file_read_intent(text) or (("summarize " in text.lower() or "summarise " in text.lower()) and bool(target_paths)):
+            intent = "file_read"
+            mode = "inspect"
+            requires_tools = True
+            should_ground = True
+            confidence = 0.95
+            evidence.extend(["file_read"])
+            if not target_paths:
+                missing.append("target path")
+        elif self._is_web_verification_intent(text):
+            intent = "web_verify"
+            mode = "inspect"
+            requires_tools = True
+            confidence = 0.8
+            evidence.extend(["web_verify"])
+        elif self._request_mentions_local_state(text):
+            intent = "local_state_inspect"
+            mode = "inspect"
+            requires_tools = True
+            should_ground = True
+            confidence = 0.8
+            evidence.extend(["local_state"])
+
+        return RequestAssessment(
+            mode=mode,
+            intent=intent,
+            requires_tools=requires_tools,
+            target_paths=target_paths,
+            missing_arguments=tuple(missing),
+            confidence=confidence,
+            evidence=tuple(evidence),
+            repo_query=repo_query,
+            should_ground_response=should_ground,
+        )
 
     def _extract_drive_root(self, text: str) -> str | None:
         # Accept drive-root-like inputs even when there's no further path component.
@@ -498,11 +619,14 @@ class Agent:
         """
 
         t = (user_text or "").strip()
-        low = t.lower()
         if not t:
             return False
+        assessment = self.assess_request(t)
+        if assessment.requires_tools:
+            return True
         if self._is_tool_design_request(t):
             return False
+        low = t.lower()
 
         has_path = bool(self._extract_path(t) or self._extract_drive_root(t))
         has_url = bool(self._extract_url(t))
@@ -584,6 +708,9 @@ class Agent:
         low = t.lower()
         if not t:
             return False, "Empty request."
+        assessment = self.assess_request(t)
+        if assessment.missing_arguments:
+            return False, "Missing required arguments: " + ", ".join(assessment.missing_arguments)
 
         path = self._extract_path(t) or self._extract_drive_root(t)
         read_path = self._extract_read_path(t)
@@ -591,8 +718,27 @@ class Agent:
         url = self._extract_url(t)
         has_tibia_hint = ("tibia" in low and ("wiki" in low or "fandom" in low or "monster" in low or "monsters" in low))
 
+        if assessment.intent == "repo_inspect":
+            query = assessment.repo_query or self._extract_repo_query(t)
+            if not query:
+                return False, "Target symbol or behavior for repo inspection could not be determined."
+            tool = self.tools.get_tool("fs.grep")
+            if not tool:
+                return False, "fs.grep tool is not available."
+            try:
+                repo_root = str(getattr(self.ctx.cfg.paths, "app_root", self.ctx.cfg.paths.working_dir))
+                _tool, validated = self.tools.prepare_for_execution(
+                    "fs.grep",
+                    {"query": query, "path": repo_root, "glob": "*.py", "max_hits": 25},
+                    reason="policy precheck",
+                )
+                self._precheck_policy(tool=_tool, args=validated)
+            except Exception as e:
+                return False, str(e)
+            return True, "ok"
+
         # Filesystem intents
-        if self._is_file_delete_intent(t):
+        if assessment.intent == "file_delete":
             if not delete_path:
                 return False, "Target file for fs.delete could not be determined."
             tool = self.tools.get_tool("fs.delete")
@@ -605,7 +751,7 @@ class Agent:
                 return False, str(e)
             return True, "ok"
 
-        if self._is_file_read_intent(t):
+        if assessment.intent == "file_read":
             if not read_path:
                 return False, "Target file for fs.read_text could not be determined."
             tool = self.tools.get_tool("fs.read_text")
@@ -631,7 +777,7 @@ class Agent:
                 return False, str(e)
             return True, "ok"
 
-        if self._is_file_write_intent(t):
+        if assessment.intent == "file_write":
             w_path = self._extract_write_path(t) or path
             content = self._extract_write_content(t)
             if not w_path:
@@ -1688,6 +1834,38 @@ class Agent:
                 return True
         return False
 
+    def _tool_error_payload(self, *, code: str, message: str, details: Any = None) -> ToolError:
+        return ToolError(code=str(code or "execution_error").strip() or "execution_error", message=str(message or "Tool failed.").strip() or "Tool failed.", details=details)
+
+    def _make_tool_result(
+        self,
+        *,
+        tool_name: str,
+        ok: bool,
+        skipped: bool,
+        args: dict[str, Any],
+        result: Any,
+        error: str | None,
+        error_code: str | None,
+        duration_ms: float,
+        reason: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        error_info = None if error is None else self._tool_error_payload(code=(error_code or "execution_error"), message=error, details=(metadata or None))
+        return ToolResult(
+            tool=tool_name,
+            ok=bool(ok),
+            skipped=bool(skipped),
+            output=result,
+            error=(str(error).strip() if error is not None else None),
+            duration_ms=float(duration_ms),
+            reason=reason,
+            args=dict(args or {}),
+            result=result,
+            error_info=error_info,
+            metadata=dict(metadata or {}),
+        )
+
     def _execute_step(self, step: PlanStep, *, prior_results: list[ToolResult]) -> ToolResult:
         reason = (step.reason or "").strip()
         if not reason:
@@ -1751,7 +1929,7 @@ class Agent:
                 )
                 if not e_ok:
                     raise AgentPolicyError(f"Audit log failed after skip: {e_err}")
-                return ToolResult(tool=tool.name, ok=True, skipped=True, output=None, error=None, duration_ms=0.0, reason=reason)
+                return self._make_tool_result(tool_name=tool.name, ok=True, skipped=True, args=validated, result=None, error=None, error_code=None, duration_ms=0.0, reason=reason)
 
         import os
         from pathlib import Path
@@ -1837,7 +2015,17 @@ class Agent:
                 if not e_ok:
                     raise AgentPolicyError(f"Audit log failed after unsafe block; refusing to proceed: {e_err}")
                 audit_destructive(status="blocked")
-                return ToolResult(tool=tool.name, ok=False, skipped=False, output=None, error=UNSAFE_BLOCK_MESSAGE, duration_ms=0.0, reason=reason)
+                return self._make_tool_result(
+                    tool_name=tool.name,
+                    ok=False,
+                    skipped=False,
+                    args=validated,
+                    result=None,
+                    error=UNSAFE_BLOCK_MESSAGE,
+                    error_code="unsafe_blocked",
+                    duration_ms=0.0,
+                    reason=reason,
+                )
 
             if placeholder_status in ("skipped", "error"):
                 invocation_id, (start_ok, start_err) = self.ctx.audit.tool_start(
@@ -1866,9 +2054,29 @@ class Agent:
 
                 if placeholder_status == "skipped":
                     audit_destructive(status="skip")
-                    return ToolResult(tool=tool.name, ok=True, skipped=True, output=None, error=placeholder_message, duration_ms=0.0, reason=reason)
+                    return self._make_tool_result(
+                        tool_name=tool.name,
+                        ok=True,
+                        skipped=True,
+                        args=validated,
+                        result=None,
+                        error=placeholder_message,
+                        error_code="placeholder_skipped",
+                        duration_ms=0.0,
+                        reason=reason,
+                    )
                 audit_destructive(status="fail")
-                return ToolResult(tool=tool.name, ok=False, skipped=False, output=None, error=placeholder_message, duration_ms=0.0, reason=reason)
+                return self._make_tool_result(
+                    tool_name=tool.name,
+                    ok=False,
+                    skipped=False,
+                    args=validated,
+                    result=None,
+                    error=placeholder_message,
+                    error_code="placeholder_error",
+                    duration_ms=0.0,
+                    reason=reason,
+                )
 
             # Supervised confirmation for risky tools.
             if getattr(tool, "requires_confirmation", False):
@@ -1897,7 +2105,17 @@ class Agent:
                     if not e_ok:
                         raise AgentPolicyError(f"Audit log failed after denial; refusing to proceed: {e_err}")
                     audit_destructive(status="skip")
-                    return ToolResult(tool=tool.name, ok=False, skipped=False, output=None, error="User denied tool execution.", duration_ms=0.0, reason=reason)
+                    return self._make_tool_result(
+                        tool_name=tool.name,
+                        ok=False,
+                        skipped=False,
+                        args=validated,
+                        result=None,
+                        error="User denied tool execution.",
+                        error_code="approval_denied",
+                        duration_ms=0.0,
+                        reason=reason,
+                    )
 
             invocation_id, (start_ok, start_err) = self.ctx.audit.tool_start(
                 mode=self.ctx.cfg.agent.mode,
@@ -1929,7 +2147,7 @@ class Agent:
                 if not end_ok:
                     raise AgentPolicyError(f"Audit log failed after execution (tool already ran): {end_err}")
                 audit_destructive(status="ok")
-                return ToolResult(tool=tool.name, ok=True, skipped=False, output=output, error=None, duration_ms=duration_ms, reason=reason)
+                return self._make_tool_result(tool_name=tool.name, ok=True, skipped=False, args=validated, result=output, error=None, error_code=None, duration_ms=duration_ms, reason=reason)
             except Exception as e:
                 ended = time.perf_counter()
                 duration_ms = max(0.0, (ended - started) * 1000.0)
@@ -1947,9 +2165,28 @@ class Agent:
                 if not end_ok:
                     raise AgentPolicyError(f"Audit log failed after tool error (tool may have partially run): {end_err}")
                 audit_destructive(status="fail")
-                if isinstance(e, ToolExecutionError):
-                    return ToolResult(tool=tool.name, ok=False, skipped=False, output=None, error=str(e), duration_ms=duration_ms, reason=reason)
-                return ToolResult(tool=tool.name, ok=False, skipped=False, output=None, error=str(e), duration_ms=duration_ms, reason=reason)
+                error_code = "execution_error"
+                low_error = str(e).strip().lower()
+                if isinstance(e, ToolValidationError):
+                    error_code = "validation_error"
+                elif "not found" in low_error:
+                    error_code = "not_found"
+                elif isinstance(e, ToolExecutionError):
+                    if "not found" in low_error:
+                        error_code = "not_found"
+                    elif "not allowed" in low_error or "blocked" in low_error or "unsafe" in low_error:
+                        error_code = "policy_error"
+                return self._make_tool_result(
+                    tool_name=tool.name,
+                    ok=False,
+                    skipped=False,
+                    args=validated,
+                    result=None,
+                    error=str(e),
+                    error_code=error_code,
+                    duration_ms=duration_ms,
+                    reason=reason,
+                )
         finally:
             reset_request_context(tokens)
 
@@ -2013,32 +2250,90 @@ class Agent:
             step = plan.steps[0]
             r = results[0]
             canonical = self._normalize_tool_name(step.tool_name)
-            if canonical == "web.search" and r.ok and isinstance(r.output, (dict, list)):
-                return json.dumps(r.output, ensure_ascii=False, sort_keys=True, indent=2).strip()
+            payload = r.result if r.result is not None else r.output
+            if canonical == "web.search" and r.ok and isinstance(payload, (dict, list)):
+                return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).strip()
 
         lines: list[str] = []
         lines.append("Tool execution results:")
         for i, step in enumerate(plan.steps, start=1):
             if i <= len(results):
                 r = results[i - 1]
+                payload = r.result if r.result is not None else r.output
+                error_text = r.error_info.message if r.error_info is not None else r.error
                 if r.skipped:
                     status = "SKIPPED"
                 else:
                     status = "OK" if r.ok else "FAILED"
                 lines.append(f"{i}. {step.tool_name}: {status}")
                 if r.skipped:
-                    lines.append(f"Skipped: {r.error}")
+                    lines.append(f"Skipped: {error_text}")
                 elif r.ok:
                     canonical = self._normalize_tool_name(step.tool_name)
-                    if canonical == "web.ingest_url" and isinstance(r.output, dict):
-                        mid = str(r.output.get("manifest_id") or "").strip()
-                        start_url = str(r.output.get("start_url") or "").strip()
-                        adapter = str(r.output.get("adapter") or "").strip()
-                        mode = str(r.output.get("mode") or "").strip()
-                        pages_ok = r.output.get("pages_ok")
-                        pages_failed = r.output.get("pages_failed")
-                        blocked_count = r.output.get("blocked_count")
-                        errors_count = r.output.get("errors_count")
+                    if canonical == "fs.read_text" and isinstance(payload, dict):
+                        path = str(payload.get("path") or "").strip() or str(r.args.get("path") or "unknown")
+                        content = str(payload.get("content") or "")
+                        lines.append(f"Read: {path}")
+                        lines.append(content if content else "<empty file>")
+                    elif canonical == "fs.write_text" and isinstance(payload, dict):
+                        path = str(payload.get("path") or r.args.get("path") or "").strip() or "unknown"
+                        bytes_written = payload.get("bytes")
+                        lines.append(f"Wrote: {path}")
+                        if bytes_written is not None:
+                            lines.append(f"Bytes: {bytes_written}")
+                    elif canonical == "fs.delete" and isinstance(payload, dict):
+                        deleted = payload.get("deleted")
+                        results_block = payload.get("results")
+                        if isinstance(results_block, list):
+                            paths = []
+                            for item in results_block:
+                                if isinstance(item, dict):
+                                    target = str(item.get("path") or item.get("target") or "").strip()
+                                    if target:
+                                        paths.append(target)
+                            if paths:
+                                lines.append("Deleted:")
+                                lines.extend(f"- {p}" for p in paths[:10])
+                        if deleted is not None:
+                            lines.append(f"Deleted count: {deleted}")
+                    elif canonical == "fs.list" and isinstance(payload, dict):
+                        path = str(payload.get("path") or r.args.get("path") or "").strip() or "unknown"
+                        lines.append(f"Listed: {path}")
+                        entries = payload.get("entries")
+                        if isinstance(entries, list):
+                            for item in entries[:20]:
+                                if not isinstance(item, dict):
+                                    continue
+                                name = str(item.get("name") or item.get("path") or "").strip()
+                                kind = "dir" if bool(item.get("is_dir")) else "file"
+                                if name:
+                                    lines.append(f"- {name} ({kind})")
+                    elif canonical == "fs.grep" and isinstance(payload, dict):
+                        query = str(payload.get("query") or r.args.get("query") or "").strip() or "unknown"
+                        base = str(payload.get("base") or r.args.get("path") or "").strip() or "unknown"
+                        lines.append(f"Repo search: {query}")
+                        lines.append(f"Base: {base}")
+                        hits = payload.get("hits")
+                        if isinstance(hits, list) and hits:
+                            for hit in hits[:20]:
+                                if not isinstance(hit, dict):
+                                    continue
+                                path = str(hit.get("path") or "").strip()
+                                line = hit.get("line")
+                                if path:
+                                    suffix = f":{line}" if line is not None else ""
+                                    lines.append(f"- {path}{suffix}")
+                        else:
+                            lines.append("No matches found.")
+                    elif canonical == "web.ingest_url" and isinstance(payload, dict):
+                        mid = str(payload.get("manifest_id") or "").strip()
+                        start_url = str(payload.get("start_url") or "").strip()
+                        adapter = str(payload.get("adapter") or "").strip()
+                        mode = str(payload.get("mode") or "").strip()
+                        pages_ok = payload.get("pages_ok")
+                        pages_failed = payload.get("pages_failed")
+                        blocked_count = payload.get("blocked_count")
+                        errors_count = payload.get("errors_count")
                         lines.append(
                             f"Ingested start_url={start_url or 'unknown'} pages_ok={pages_ok} pages_failed={pages_failed} (adapter={adapter or 'unknown'}, mode={mode or 'unknown'}), manifest_id={mid or 'unknown'}."
                         )
@@ -2062,12 +2357,15 @@ class Agent:
                                             lines.append(f"Stored docs_ingested={di} chunks_total={ct} into memory.")
                             except Exception:
                                 pass
-                    elif isinstance(r.output, (dict, list)):
-                        lines.append(json.dumps(r.output, ensure_ascii=False, indent=2))
+                    elif isinstance(payload, (dict, list)):
+                        lines.append(json.dumps(payload, ensure_ascii=False, indent=2))
                     else:
-                        lines.append(str(r.output))
+                        lines.append(str(payload))
                 else:
-                    lines.append(f"Error: {r.error}")
+                    if r.error_info is not None:
+                        lines.append(f"Error [{r.error_info.code}]: {r.error_info.message}")
+                    else:
+                        lines.append(f"Error: {error_text}")
                 lines.append("")
             else:
                 # Planned but not executed (because a previous step failed).
@@ -2152,6 +2450,8 @@ class Agent:
             self._is_file_read_intent(text)
             or self._is_file_delete_intent(text)
             or self._is_file_write_intent(text)
+            or self._is_repo_inspection_request(text)
+            or (("summarize " in lowered or "summarise " in lowered) and bool(self._extract_path(text) or self._resolve_contextual_file_path(text)))
             or any(
                 k in lowered
                 for k in (
@@ -2290,6 +2590,8 @@ class Agent:
             "what is in",
             "what is inside",
             "what's inside",
+            "summarize ",
+            "summarise ",
             "show the file i just created",
             "show the file i made",
         )
@@ -2304,6 +2606,21 @@ class Agent:
         )
         if list_pos != -1:
             kinds_with_pos.append((list_pos, "list"))
+        repo_pos = _first_pos(
+            "where is",
+            "implemented",
+            "in this repo",
+            "this repo",
+            "codebase",
+            "planner",
+            "orchestrator",
+            "fallback behavior",
+            "tool execution results",
+            "responsible for",
+            "what handles",
+        )
+        if repo_pos != -1 and self._is_repo_inspection_request(s):
+            kinds_with_pos.append((repo_pos, "repo_inspect"))
         write_pos = _first_pos(
             "write file",
             "write a file",
@@ -2351,11 +2668,26 @@ class Agent:
         # Deterministic: remove duplicates while preserving order.
         seen_k: set[str] = set()
         kinds = [k for k in kinds if not (k in seen_k or seen_k.add(k))]
+        if "repo_inspect" in kinds:
+            kinds = [k for k in kinds if k not in {"delete", "read", "write", "list"} or k == "repo_inspect"]
         # Avoid misclassifying GitHub repo ingestion as a web crawl.
         if "repo_ingest" in kinds:
             kinds = [k for k in kinds if k != "crawl"]
 
         for kind in kinds:
+            if kind == "repo_inspect":
+                query = self._extract_repo_query(s)
+                if not query:
+                    raise AgentPolicyError("Could not determine what to inspect in the repo.")
+                repo_root = str(getattr(self.ctx.cfg.paths, "app_root", self.ctx.cfg.paths.working_dir))
+                out.append(
+                    PlanStep(
+                        tool_name=self._normalize_tool_name("fs.grep"),
+                        arguments=self._normalize_tool_args("fs.grep", {"query": query, "path": repo_root, "glob": "*.py", "max_hits": 25}),
+                        reason=f"User requested repo inspection for {query}.",
+                    )
+                )
+                continue
             if kind == "ingest_url":
                 url = self._extract_url(s)
                 if not url:
@@ -2711,6 +3043,132 @@ class Agent:
             )
         )
 
+    def _is_plan_request(self, text: str) -> bool:
+        low = (text or "").lower()
+        if self._is_tool_design_request(text):
+            return True
+        return any(
+            phrase in low
+            for phrase in (
+                "design ",
+                "plan ",
+                "architecture",
+                "how should",
+                "what's the best approach",
+                "what is the best approach",
+                "safer orchestrator",
+                "tool spec",
+            )
+        ) and not self._is_file_write_intent(text)
+
+    def _request_mentions_local_state(self, text: str) -> bool:
+        low = (text or "").lower()
+        return any(
+            phrase in low
+            for phrase in (
+                "this repo",
+                "in this repo",
+                "current repo",
+                "current project",
+                "here in the repo",
+                "local repo",
+                "workspace",
+                "project structure",
+            )
+        )
+
+    def _is_repo_inspection_request(self, text: str) -> bool:
+        low = (text or "").lower()
+        if self._is_tool_design_request(text) or self._is_plan_request(text):
+            return False
+        if self._extract_path(text) or self._extract_url(text):
+            return False
+        repo_words = any(token in low for token in ("repo", "repository", "codebase", "project", "planner", "orchestrator", "fallback", "tool execution"))
+        inspect_words = any(
+            phrase in low
+            for phrase in (
+                "where is",
+                "implemented",
+                "which files",
+                "what handles",
+                "show me how",
+                "how does",
+                "responsible for",
+                "represented",
+            )
+        )
+        return bool(repo_words and inspect_words) or self._request_mentions_local_state(text)
+
+    def _extract_repo_query(self, text: str) -> str | None:
+        src = (text or "").strip()
+        if not src:
+            return None
+        quoted = re.search(r"['\"]([^'\"]+)['\"]", src)
+        if quoted and quoted.group(1).strip():
+            return quoted.group(1).strip()
+
+        low = src.lower()
+        keyword_map = (
+            ("tool execution results", "ToolResult"),
+            ("results are represented", "ToolResult"),
+            ("planner", "_plan_from_natural_language"),
+            ("orchestrator", "RuntimeOrchestrator"),
+            ("fallback behavior", "_run_llm_chat_audited"),
+            ("fallback", "_run_llm_chat_audited"),
+            ("delete", "fs.delete"),
+            ("read", "fs.read_text"),
+            ("write", "fs.write_text"),
+        )
+        for needle, query in keyword_map:
+            if needle in low:
+                return query
+
+        patterns = (
+            r"\bwhere\s+is\s+(.+?)\s+implemented\b",
+            r"\bwhat\s+handles\s+(.+)$",
+            r"\bwhich\s+files\s+are\s+responsible\s+for\s+(.+)$",
+            r"\bshow\s+me\s+how\s+(.+?)\s+(?:is|are)\s+represented\b",
+            r"\bhow\s+does\s+(.+?)\s+work(?:\s+in\s+this\s+repo)?\b",
+        )
+        for pat in patterns:
+            m = re.search(pat, src, flags=re.IGNORECASE)
+            if not m:
+                continue
+            candidate = m.group(1).strip(" .?!")
+            if candidate:
+                return candidate
+
+        cleaned = re.sub(r"[^A-Za-z0-9_.-]+", " ", src)
+        stop = {
+            "where",
+            "is",
+            "the",
+            "this",
+            "repo",
+            "repository",
+            "codebase",
+            "project",
+            "implemented",
+            "how",
+            "does",
+            "work",
+            "what",
+            "handles",
+            "which",
+            "files",
+            "are",
+            "responsible",
+            "for",
+            "show",
+            "me",
+            "in",
+            "represented",
+        }
+        tokens = [tok for tok in cleaned.split() if tok and tok.lower() not in stop]
+        if not tokens:
+            return None
+        return " ".join(tokens[:4])
+
     def _is_file_read_intent(self, text: str) -> bool:
         low = (text or "").lower()
         return any(
@@ -3060,7 +3518,26 @@ class Agent:
     def _tool_results_to_dict(self, results: tuple[ToolResult, ...]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for r in results:
-            out.append({"tool": r.tool, "ok": r.ok, "error": r.error, "duration_ms": r.duration_ms})
+            out.append(
+                {
+                    "tool": r.tool,
+                    "ok": r.ok,
+                    "skipped": r.skipped,
+                    "args": dict(r.args or {}),
+                    "result": r.result if r.result is not None else r.output,
+                    "error": (
+                        {
+                            "code": r.error_info.code,
+                            "message": r.error_info.message,
+                            "details": r.error_info.details,
+                        }
+                        if r.error_info is not None
+                        else (r.error if r.error is not None else None)
+                    ),
+                    "duration_ms": r.duration_ms,
+                    "reason": r.reason,
+                }
+            )
         return out
 
     def _memory_add_event(self, *, role: str, content: str, tags: list[str], meta: dict[str, Any] | None) -> None:

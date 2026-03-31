@@ -40,12 +40,14 @@ class RuntimeOrchestrator:
         prov = (provider or "").strip().lower() or str(self.agent.ctx.cfg.llm.get("provider") or "stub").strip().lower()
         mdl = (model or "").strip() or "stub"
 
+        assessment = self.agent.assess_request(user_text)
         plan = self.agent.plan(user_message)
         decision = self.action_policy.choose_chat_action(
             user_text=user_text,
             retrieved=retrieved,
             working_memory=working_memory,
             explicit_plan=plan,
+            assessment=assessment,
         )
         if working_memory is not None:
             working_memory.record_decision(action=decision.action, reason=decision.reason, evidence=list(decision.evidence))
@@ -80,7 +82,7 @@ class RuntimeOrchestrator:
                 working_memory.note_unresolved(decision.reason)
             return AgentResult(ok=False, plan=Plan(steps=tuple()), text=finalize_response_text(msg, response_mode=response_mode), tool_results=tuple(), retrieved=tuple(retrieved), context=context, sources=tuple(), verification_level=VerificationLevel.UNVERIFIED, verification=None)
 
-        if not plan.steps and decision.use_plan and self.agent._request_is_tool_addressable(user_text):
+        if not plan.steps and decision.use_plan and assessment.requires_tools:
             allowed, why = self.agent._tool_authority_allowed_status(user_text)
             if not allowed:
                 self.agent._audit_agent_info(summary="tool_required_but_blocked_by_policy", error=why, meta={"thread_id": thread_id, "user_text": user_text})
@@ -102,6 +104,15 @@ class RuntimeOrchestrator:
 
             plan = Plan(steps=tuple(forced_steps))
             self.agent._audit_agent_info(summary="tool_authority_enforced", error=None, meta={"thread_id": thread_id, "plan": self.agent._plan_to_dict(plan)})
+
+        if assessment.requires_tools and not plan.steps and not decision.require_clarification:
+            why = "This request depends on local tool execution, but no executable plan was produced."
+            self.agent._audit_agent_info(summary="tool_required_without_plan", error=why, meta={"thread_id": thread_id, "user_text": user_text, "assessment": assessment.intent})
+            msg = f"This request requires tool execution, but I couldn't build a grounded plan.\n\nDetails: {why}"
+            self.agent._memory_add_event(role="assistant", content=msg, tags=["trusted:assistant"], meta={"thread_id": thread_id})
+            if working_memory is not None:
+                working_memory.note_unresolved(why)
+            return AgentResult(ok=False, plan=Plan(steps=tuple()), text=finalize_response_text(msg, response_mode=response_mode), tool_results=tuple(), retrieved=tuple(retrieved), context=context, sources=tuple(), verification_level=VerificationLevel.UNVERIFIED, verification=None)
 
         if plan.steps:
             try:
@@ -144,7 +155,16 @@ class RuntimeOrchestrator:
             if working_memory is not None:
                 working_memory.set_summary(text)
                 working_memory.clear_unresolved()
-            return AgentResult(ok=ok, plan=plan, text=text, tool_results=tuple(tool_results), retrieved=tuple(retrieved), context=context, sources=sources, verification_level=VerificationLevel.UNVERIFIED, verification=None)
+                return AgentResult(ok=ok, plan=plan, text=text, tool_results=tuple(tool_results), retrieved=tuple(retrieved), context=context, sources=sources, verification_level=VerificationLevel.UNVERIFIED, verification=None)
+
+        if assessment.requires_tools:
+            why = "Tool-required request reached response generation without any executed tool results."
+            self.agent._audit_agent_info(summary="tool_required_without_execution", error=why, meta={"thread_id": thread_id, "user_text": user_text, "assessment": assessment.intent})
+            msg = f"This request requires tool execution, but nothing was executed.\n\nDetails: {why}"
+            self.agent._memory_add_event(role="assistant", content=msg, tags=["trusted:assistant"], meta={"thread_id": thread_id})
+            if working_memory is not None:
+                working_memory.note_unresolved(why)
+            return AgentResult(ok=False, plan=Plan(steps=tuple()), text=finalize_response_text(msg, response_mode=response_mode), tool_results=tuple(), retrieved=tuple(retrieved), context=context, sources=tuple(), verification_level=VerificationLevel.UNVERIFIED, verification=None)
 
         assistant = self.agent._run_llm_chat_audited(
             user_text=user_text,
@@ -208,6 +228,9 @@ class RuntimeOrchestrator:
                     error=retry.reason,
                     duration_ms=0.0,
                     reason=str(step.reason),
+                    args=dict(getattr(step, "arguments", {}) or {}),
+                    result=None,
+                    error_info=self.agent._tool_error_payload(code=retry.category or "execution", message=retry.reason),
                 )
                 results.append(result)
                 if working_memory is not None:

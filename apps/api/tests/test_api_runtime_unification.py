@@ -22,7 +22,7 @@ from sol.core.unsafe_mode import disable as disable_unsafe
 from sol.core.unsafe_mode import enable as enable_unsafe
 from sol.core.working_memory import WorkingMemoryManager
 from sol.runtime.paths import build_runtime_paths, ensure_runtime_dirs
-from sol.tools.fs import FsDeleteTool, FsListTool, FsReadTool, FsWriteTool
+from sol.tools.fs import FsDeleteTool, FsGrepTool, FsListTool, FsReadTool, FsWriteTool
 from sol.tools.registry import ToolRegistry
 from conftest import write_test_config
 
@@ -54,10 +54,11 @@ def _build_live_agent(tmp_path: Path) -> tuple[Agent, Path]:
     registry.register(FsReadTool())
     registry.register(FsDeleteTool())
     registry.register(FsListTool())
+    registry.register(FsGrepTool())
     agent = Agent.create(ctx=ctx, tools=registry)
     work_dir = agent.ctx.cfg.paths.working_dir.resolve(strict=False)
     work_dir.mkdir(parents=True, exist_ok=True)
-    object.__setattr__(agent.ctx.cfg.fs, "allowed_roots", (work_dir, work_dir / "_posix_root"))
+    object.__setattr__(agent.ctx.cfg.fs, "allowed_roots", (work_dir, work_dir / "_posix_root", agent.ctx.cfg.paths.app_root.resolve(strict=False)))
     object.__setattr__(agent.ctx.cfg.fs, "deny_drive_letters", tuple())
     object.__setattr__(agent.ctx.cfg.fs, "denied_substrings", tuple())
     posix_root = work_dir / "_posix_root"
@@ -248,6 +249,7 @@ def test_chat_live_route_reads_files_via_tools_and_supports_followups(monkeypatc
         "what is in demo.txt",
         "what is the contents of the file named demo.txt",
         "cat demo.txt",
+        "summarize demo.txt",
         "show the file I just created",
         "what is the contents of the file named demo",
     ]
@@ -344,8 +346,44 @@ def test_chat_live_route_clarifies_when_read_target_is_unknown_and_does_not_hall
     assert response.status_code == 200, response.text
     payload = response.json()
     assert "fs.read_text: OK" not in payload["content"]
-    assert "could not be determined" in payload["content"].lower()
+    assert ("could not be determined" in payload["content"].lower()) or ("missing required arguments" in payload["content"].lower())
     assert "hello" not in payload["content"].lower()
+    assert "Sol says:" not in payload["content"]
+
+
+def test_chat_live_route_repo_inspection_defaults_to_repo_search(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, _work_dir = _build_live_agent(tmp_path)
+    repo_file = tmp_path / "planner_runtime.py"
+    repo_file.write_text("DELETE_TOOL = 'fs.delete'\n", encoding="utf-8")
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+    response = client.post("/v1/chat", json={"message": "Inspect the repo and tell me where delete is implemented", "thread_id": None})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "fs.grep: OK" in payload["content"]
+    assert str(repo_file) in payload["content"]
+    assert "Sol says:" not in payload["content"]
 
 
 def test_chat_live_route_design_request_does_not_trigger_filesystem_tools(monkeypatch, tmp_path) -> None:

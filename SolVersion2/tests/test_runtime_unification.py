@@ -20,7 +20,7 @@ from sol.skills.manager import SkillManager
 from sol.core.unsafe_mode import disable as disable_unsafe
 from sol.core.unsafe_mode import enable as enable_unsafe
 from sol.tools.base import Tool
-from sol.tools.fs import FsWriteTool
+from sol.tools.fs import FsDeleteTool, FsGrepTool, FsReadTool, FsWriteTool
 from sol.tools.registry import ToolRegistry
 
 from conftest import write_test_config
@@ -79,10 +79,13 @@ def _prepare_fs_write_agent(tmp_path: Path) -> tuple[Agent, Path]:
     agent, registry, _cfg, _runtime_paths = _build_agent(tmp_path)
     work_dir = agent.ctx.cfg.paths.working_dir.resolve(strict=False)
     work_dir.mkdir(parents=True, exist_ok=True)
-    object.__setattr__(agent.ctx.cfg.fs, "allowed_roots", (work_dir,))
+    object.__setattr__(agent.ctx.cfg.fs, "allowed_roots", (work_dir, agent.ctx.cfg.paths.app_root.resolve(strict=False)))
     object.__setattr__(agent.ctx.cfg.fs, "deny_drive_letters", tuple())
     object.__setattr__(agent.ctx.cfg.fs, "denied_substrings", tuple())
     registry.register(FsWriteTool())
+    registry.register(FsReadTool())
+    registry.register(FsDeleteTool())
+    registry.register(FsGrepTool())
     return agent, work_dir
 
 
@@ -238,3 +241,100 @@ def test_posix_absolute_write_prompt_is_tool_addressable(tmp_path: Path) -> None
     assert forced[0].tool_name == "fs.write_text"
     assert forced[0].arguments["path"].endswith(str(Path("home") / "nexus" / "demo.txt"))
     assert not (work_dir / "at").exists()
+
+
+def test_request_assessment_distinguishes_modes_and_tool_requirements(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+    (work_dir / "demo.txt").write_text("hello", encoding="utf-8")
+    (tmp_path / "planner_runtime.py").write_text("DELETE_TOOL = 'fs.delete'\n", encoding="utf-8")
+
+    discuss = agent.assess_request("How should we structure deletes?")
+    inspect = agent.assess_request("Inspect the repo and tell me where delete is implemented")
+    execute = agent.assess_request("delete demo.txt")
+    transform = agent.assess_request('create a file named demo.txt with content hello')
+    plan = agent.assess_request("Design a safer orchestrator")
+
+    assert discuss.mode in {"discuss", "plan"}
+    assert discuss.requires_tools is False
+    assert inspect.mode == "inspect"
+    assert inspect.requires_tools is True
+    assert inspect.intent == "repo_inspect"
+    assert execute.mode == "execute"
+    assert execute.requires_tools is True
+    assert transform.mode == "transform"
+    assert transform.requires_tools is True
+    assert plan.mode == "plan"
+    assert plan.requires_tools is False
+
+
+def test_chat_read_uses_structured_tool_result_and_blocks_fake_fallback(tmp_path: Path, monkeypatch) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+    target = work_dir / "demo.txt"
+    target.write_text("hello", encoding="utf-8")
+
+    monkeypatch.setattr(agent, "_run_llm_chat_audited", lambda **_: "I can't access your files.")
+    result = agent.chat(user_message="read demo.txt", provider="stub", model="stub", thread_id="thread-1")
+
+    assert result.ok is True
+    assert result.tool_results
+    tool_result = result.tool_results[0]
+    assert tool_result.tool == "fs.read_text"
+    assert tool_result.args["path"] == str(target)
+    assert tool_result.result["content"] == "hello"
+    assert tool_result.error_info is None
+    assert "I can't access your files" not in result.text
+    assert "Read:" in result.text
+    assert "hello" in result.text
+
+
+def test_chat_missing_read_target_returns_grounded_failure_without_llm_guess(tmp_path: Path, monkeypatch) -> None:
+    agent, _work_dir = _prepare_fs_write_agent(tmp_path)
+    monkeypatch.setattr(agent, "_run_llm_chat_audited", lambda **_: "Invented answer")
+
+    result = agent.chat(user_message="show the file I just created", provider="stub", model="stub", thread_id="thread-1")
+
+    assert result.ok is False
+    assert result.tool_results == tuple()
+    assert "could not be determined" in result.text.lower() or "missing required arguments" in result.text.lower()
+    assert "Invented answer" not in result.text
+
+
+def test_execute_delete_failure_returns_structured_error(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+    enable_unsafe("thread-1", reason="Allow delete in test", user="tester", cfg=agent.ctx.cfg)
+    try:
+        result = agent.chat(user_message="delete demo.txt", provider="stub", model="stub", thread_id="thread-1")
+    finally:
+        disable_unsafe("thread-1", reason="Reset delete test state", user="tester", cfg=agent.ctx.cfg)
+
+    assert result.ok is False
+    assert result.tool_results
+    tool_result = result.tool_results[0]
+    assert tool_result.tool == "fs.delete"
+    assert tool_result.error_info is not None
+    assert tool_result.error_info.code == "not_found"
+    assert not (work_dir / "demo.txt").exists()
+    assert "deleted" not in result.text.lower()
+
+
+def test_chat_repo_lookup_uses_repo_search_tool(tmp_path: Path) -> None:
+    agent, _work_dir = _prepare_fs_write_agent(tmp_path)
+    repo_file = tmp_path / "planner_runtime.py"
+    repo_file.write_text("DELETE_TOOL = 'fs.delete'\n", encoding="utf-8")
+
+    result = agent.chat(
+        user_message="Inspect the repo and tell me where delete is implemented",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert result.ok is True
+    assert result.tool_results
+    tool_result = result.tool_results[0]
+    assert tool_result.tool == "fs.grep"
+    assert tool_result.args["query"] == "fs.delete"
+    hits = tool_result.result["hits"]
+    assert isinstance(hits, list) and hits
+    assert hits[0]["path"] == str(repo_file)
+    assert "Repo search:" in result.text

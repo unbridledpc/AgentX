@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sol.core.memory import MemoryChunk
@@ -20,6 +20,13 @@ class Plan:
 
 
 @dataclass(frozen=True)
+class ToolError:
+    code: str
+    message: str
+    details: Any = None
+
+
+@dataclass(frozen=True)
 class ToolResult:
     tool: str
     ok: bool
@@ -28,6 +35,23 @@ class ToolResult:
     error: str | None
     duration_ms: float
     reason: str
+    args: dict[str, Any] = field(default_factory=dict)
+    result: Any = None
+    error_info: ToolError | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RequestAssessment:
+    mode: str
+    intent: str
+    requires_tools: bool
+    target_paths: tuple[str, ...] = tuple()
+    missing_arguments: tuple[str, ...] = tuple()
+    confidence: float = 0.0
+    evidence: tuple[str, ...] = tuple()
+    repo_query: str | None = None
+    should_ground_response: bool = False
 
 
 @dataclass(frozen=True)

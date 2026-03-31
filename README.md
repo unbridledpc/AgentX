@@ -49,18 +49,18 @@ The installer uses the existing product-style runtime model:
 After install:
 
 ```bash
-~/.local/bin/nexai start
-~/.local/bin/nexai status
+nexai start
+nexai status
 ```
 
 Lifecycle commands:
 
 ```bash
-~/.local/bin/nexai start
-~/.local/bin/nexai stop
-~/.local/bin/nexai restart
-~/.local/bin/nexai status
-~/.local/bin/nexai uninstall
+nexai start
+nexai stop
+nexai restart
+nexai status
+nexai uninstall
 ```
 
 Then open:
@@ -73,11 +73,7 @@ Notes:
 
 - Fresh local installs default to local-first mode with login disabled.
 - The default model provider is Ollama at `http://127.0.0.1:11434`
-- If `~/.local/bin` is not on your `PATH`, add:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+- The installer updates `PATH` for the current install session and persists `~/.local/bin` into `.bashrc` or `.zshrc` when needed.
 
 Repo-local installs are still supported from a checked-out bundle:
 
@@ -126,6 +122,8 @@ Sol is under active architecture work. The current direction is production-minde
 ## Development
 
 Python components live primarily under `SolVersion2/` and `apps/api/`. The web UI lives under `SolWeb/`. Local runtime data, dependency folders, caches, and logs are intentionally excluded from version control.
+
+Verified grounded demo flows are documented in `SolVersion2/docs/reliability-demos.md`.
 
 ## License
 

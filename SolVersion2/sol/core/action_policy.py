@@ -36,10 +36,19 @@ class ActionSelectionPolicy:
         retrieved: list[Any],
         working_memory,
         explicit_plan,
+        assessment=None,
     ) -> ActionDecision:
         text = (user_text or "").strip()
         if not text:
             return ActionDecision(action="direct_answer", reason="No user text provided.", use_llm=True)
+
+        if assessment is not None and tuple(getattr(assessment, "missing_arguments", ()) or ()):
+            return ActionDecision(
+                action="clarify_or_block",
+                reason="Missing required arguments: " + ", ".join(str(x) for x in assessment.missing_arguments),
+                evidence=tuple(getattr(assessment, "evidence", ()) or ()),
+                require_clarification=True,
+            )
 
         if self._can_reuse_recent_answer(text=text, working_memory=working_memory):
             return ActionDecision(
@@ -57,11 +66,11 @@ class ActionSelectionPolicy:
                 use_plan=True,
             )
 
-        if self.agent._is_tool_design_request(text):
+        if assessment is not None and str(getattr(assessment, "mode", "") or "") == "plan":
             return ActionDecision(
                 action="design_response",
                 reason="Request is asking to design or define a tool/skill, not execute one.",
-                evidence=("tool_design_request",),
+                evidence=tuple(getattr(assessment, "evidence", ()) or ("tool_design_request",)),
                 use_llm=True,
                 use_retrieval_context=bool(retrieved),
             )
@@ -72,6 +81,22 @@ class ActionSelectionPolicy:
                 reason="Request appears freshness-sensitive and web verification is enabled.",
                 evidence=("time_sensitive_query", "web.enabled", "agent.auto_web_verify"),
                 use_plan=True,
+            )
+
+        if assessment is not None and bool(getattr(assessment, "requires_tools", False)):
+            allowed, why = self.agent._tool_authority_allowed_status(text)
+            if allowed:
+                return ActionDecision(
+                    action="run_plan",
+                    reason="Request is tool-addressable and allowed by policy.",
+                    evidence=tuple(getattr(assessment, "evidence", ()) or ("tool_authority",)),
+                    use_plan=True,
+                )
+            return ActionDecision(
+                action="clarify_or_block",
+                reason=why,
+                evidence=tuple(getattr(assessment, "evidence", ()) or ("tool_authority_blocked",)),
+                require_clarification=True,
             )
 
         if self.agent._request_is_tool_addressable(text):

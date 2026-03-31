@@ -14,6 +14,12 @@ class ToolInterpretation:
 
 class ToolResultInterpreter:
     def interpret(self, *, tool_name: str, ok: bool, output: Any, error: str | None = None) -> ToolInterpretation:
+        if hasattr(output, "result") and hasattr(output, "error_info"):
+            result_obj = getattr(output, "result", None)
+            error_info = getattr(output, "error_info", None)
+            output = result_obj if result_obj is not None else getattr(output, "output", None)
+            if error_info is not None:
+                error = getattr(error_info, "message", error)
         if not ok:
             return ToolInterpretation(summary=str(error or "Tool failed."), sufficient=False)
         if isinstance(output, dict):
