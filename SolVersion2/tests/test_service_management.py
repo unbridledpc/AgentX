@@ -299,6 +299,9 @@ def test_cli_parser_includes_service_and_logs_commands() -> None:
     assert args.cmd == "logs"
     assert args.service == "api"
     assert args.tail == 20
+    args = parser.parse_args(["uninstall", "--yes"])
+    assert args.cmd == "uninstall"
+    assert args.yes is True
 
 
 def test_cli_service_status_dispatch(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -423,3 +426,82 @@ def test_cli_logs_header_for_file_logs(tmp_path: Path, monkeypatch, capsys) -> N
     assert str(log_path) in captured.out
     assert "Tail: 40" in captured.out
     assert "file lines" in captured.out
+
+
+def test_cli_stop_dispatch(tmp_path: Path, monkeypatch, capsys) -> None:
+    config = _config(tmp_path)
+    install_cfg = tmp_path / "install.json"
+    save_install_config(config, install_cfg)
+    monkeypatch.setattr(
+        "sol.cli.stop_installation",
+        lambda install: {
+            "api": {"state": "already_stopped"},
+            "web": {"state": "disabled"},
+        },
+    )
+    code = cli_main(["--install-config", str(install_cfg), "stop"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Shutdown" in captured.out
+    assert "already_stopped" in captured.out
+
+
+def test_cli_restart_dispatch(tmp_path: Path, monkeypatch, capsys) -> None:
+    config = _config(tmp_path)
+    install_cfg = tmp_path / "install.json"
+    save_install_config(config, install_cfg)
+    monkeypatch.setattr(
+        "sol.cli.restart_installation",
+        lambda install, install_config_path=None: {
+            "ok": True,
+            "stop": {"api": {"state": "stopped"}, "web": {"state": "already_stopped"}},
+            "start": {
+                "profile": config.profile.value,
+                "services": {
+                    "api": {"state": "started", "detail": "ok", "log_path": str(tmp_path / "api.log")},
+                    "web": {"state": "disabled"},
+                },
+            },
+        },
+    )
+    code = cli_main(["--install-config", str(install_cfg), "restart"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Restart" in captured.out
+    assert "started" in captured.out
+    assert "stopped" in captured.out
+
+
+def test_cli_uninstall_dispatch_yes(tmp_path: Path, monkeypatch, capsys) -> None:
+    config = _config(tmp_path)
+    install_cfg = tmp_path / "install.json"
+    save_install_config(config, install_cfg)
+    monkeypatch.setattr(
+        "sol.cli.uninstall_installation",
+        lambda install, install_config_path=None, remove_app_root=True: {
+            "runtime_root": {"state": "removed"},
+            "app_root": {"state": "removed" if remove_app_root else "kept"},
+            "install_config": {"state": "removed"},
+            "bootstrap_record": {"state": "removed"},
+            "launchers": {"nexai": {"state": "removed", "path": str(tmp_path / "bin" / "nexai")}},
+            "systemd_units": {"state": "removed", "paths": [str(tmp_path / "units" / "sol-api.service")]},
+            "warnings": [],
+        },
+    )
+    code = cli_main(["--install-config", str(install_cfg), "uninstall", "--yes"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Uninstall" in captured.out
+    assert "Runtime root: removed" in captured.out
+    assert "nexai setup" in captured.out
+
+
+def test_cli_uninstall_cancelled_without_yes(tmp_path: Path, monkeypatch, capsys) -> None:
+    config = _config(tmp_path)
+    install_cfg = tmp_path / "install.json"
+    save_install_config(config, install_cfg)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    code = cli_main(["--install-config", str(install_cfg), "uninstall"])
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "Uninstall cancelled." in captured.out

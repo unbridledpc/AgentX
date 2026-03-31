@@ -52,6 +52,16 @@ After install:
 ~/.local/bin/nexai status
 ```
 
+Lifecycle commands:
+
+```bash
+~/.local/bin/nexai start
+~/.local/bin/nexai stop
+~/.local/bin/nexai restart
+~/.local/bin/nexai status
+~/.local/bin/nexai uninstall
+```
+
 Then open:
 
 ```text
@@ -72,6 +82,16 @@ Repo-local installs are still supported from a checked-out bundle:
 
 ```bash
 ./install-sol.sh
+```
+
+For repo-local installs, the same lifecycle commands are available through `nexai` after setup:
+
+```bash
+nexai start
+nexai stop
+nexai restart
+nexai status
+nexai uninstall
 ```
 
 ## Auth Mode

@@ -284,7 +284,10 @@ fi
 info "Next steps:"
 printf '  %s setup\n' "${LAUNCHER_PATH}"
 printf '  %s start\n' "${LAUNCHER_PATH}"
+printf '  %s stop\n' "${LAUNCHER_PATH}"
+printf '  %s restart\n' "${LAUNCHER_PATH}"
 printf '  %s status\n' "${LAUNCHER_PATH}"
+printf '  %s uninstall\n' "${LAUNCHER_PATH}"
 printf '  %s doctor\n' "${BOOTSTRAP_FALLBACK}"
 printf '  Legacy alias: %s\n' "${COMPAT_LAUNCHER_PATH}"
 printf '  Web UI: http://127.0.0.1:5173\n'

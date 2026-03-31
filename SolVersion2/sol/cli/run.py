@@ -159,7 +159,7 @@ def run_task_via_api(config: Any, task: str, *, timeout_s: float = 60.0, status:
         api_state = str(api.get("state", "")).strip().lower()
         api_healthy = api.get("healthy")
         if api_state in {"stopped", "inactive", "failed", "disabled", "not_running"} and api_healthy is False:
-            return CliRunResult(ok=False, text="NexAI API is not running. Try: nexai service status", exit_code=1)
+            return CliRunResult(ok=False, text="NexAI API is not running. Try: nexai status or nexai start", exit_code=1)
 
     url = f"{_api_base_url(config)}/v1/chat"
     payload = {"message": prompt, "stream": False}
@@ -180,7 +180,7 @@ def run_task_via_api(config: Any, task: str, *, timeout_s: float = 60.0, status:
             body = exc.read().decode("utf-8", errors="replace") if getattr(exc, "fp", None) else ""
         return CliRunResult(ok=False, text=_extract_error_message(body), exit_code=1)
     except (urllib.error.URLError, TimeoutError, socket.timeout):
-        return CliRunResult(ok=False, text="NexAI API is not running. Try: nexai service status", exit_code=1)
+        return CliRunResult(ok=False, text="NexAI API is not running. Try: nexai status or nexai start", exit_code=1)
     except Exception as exc:
         return CliRunResult(ok=False, text=f"Unexpected error: {str(exc).strip() or 'request failed'}", exit_code=1)
 

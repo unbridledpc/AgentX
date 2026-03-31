@@ -9,7 +9,7 @@ from sol.config import load_config
 from sol.install.deps import install_target_for_config, profile_extra_name, required_dependency_packages
 from sol.install.local_profile import LocalProfileSelection, resolve_local_profile, save_local_profile
 from sol.install.ollama import DEFAULT_OLLAMA_BASE_URL, build_ollama_base_url, detect_wsl_nameserver_ip, wsl_ollama_guidance
-from sol.install.lifecycle import ensure_installation_ready, inspect_runtime, run_doctor, show_paths, start_installation, status_installation, stop_installation
+from sol.install.lifecycle import ensure_installation_ready, inspect_runtime, run_doctor, show_paths, start_installation, status_installation, stop_installation, uninstall_installation
 from sol.install.models import InstallProfile, ServiceMode
 from sol.install.store import load_install_config, save_install_config
 from sol.runtime.bootstrap import build_runtime_services_from_config
@@ -702,6 +702,99 @@ def test_stop_cleans_stale_pid(tmp_path: Path, monkeypatch) -> None:
     stopped = stop_installation(cfg)
     assert stopped["api"]["state"] == "stale_pid_removed"
     assert not paths.api_pid_path.exists()
+
+
+def test_uninstall_removes_runtime_bundle_launchers_and_install_config(tmp_path: Path, monkeypatch) -> None:
+    app_root = tmp_path / "app"
+    (app_root / "SolVersion2" / "plugins").mkdir(parents=True)
+    (app_root / "SolVersion2" / "skills").mkdir(parents=True)
+    (app_root / "SolVersion2" / "pyproject.toml").write_text("[project]\nname='solversion2'\nversion='0.0.0'\n", encoding="utf-8")
+    (app_root / "SolVersion2" / "Server" / "data" / "features").mkdir(parents=True)
+    (app_root / "apps" / "api" / "sol_api").mkdir(parents=True)
+    (app_root / "SolWeb" / "dist").mkdir(parents=True)
+    (app_root / "SolWeb" / "dist" / "index.html").write_text("ok", encoding="utf-8")
+    cfg = build_install_config(
+        app_root=app_root,
+        runtime_root=tmp_path / "runtime",
+        working_dir=tmp_path / "work",
+        profile=InstallProfile.STANDARD,
+        model_provider="stub",
+        api_host="127.0.0.1",
+        api_port=8420,
+        web_host="127.0.0.1",
+        web_port=5173,
+        service_mode=ServiceMode.NONE,
+    )
+    _stub_managed_runtime(monkeypatch)
+    ensure_installation_ready(cfg)
+    install_cfg = tmp_path / "install.json"
+    save_install_config(cfg, install_cfg)
+
+    launcher_dir = tmp_path / "bin"
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    nexai_launcher = launcher_dir / "nexai"
+    sol_launcher = launcher_dir / "sol"
+    marker = f'export SOL_BOOTSTRAP_APP_ROOT="{cfg.app_root.resolve(strict=False)}"\n'
+    nexai_launcher.write_text(marker, encoding="utf-8")
+    sol_launcher.write_text(marker, encoding="utf-8")
+
+    bootstrap_record = tmp_path / "bootstrap" / "app_root.txt"
+    bootstrap_record.parent.mkdir(parents=True, exist_ok=True)
+    bootstrap_record.write_text(str(cfg.app_root.resolve(strict=False)), encoding="utf-8")
+
+    monkeypatch.setattr("sol.install.lifecycle.canonical_user_launcher_path", lambda: nexai_launcher)
+    monkeypatch.setattr("sol.install.lifecycle.compatibility_user_launcher_path", lambda: sol_launcher)
+    monkeypatch.setattr("sol.install.lifecycle.bootstrap_app_root_record_path", lambda: bootstrap_record)
+    monkeypatch.setattr("sol.install.lifecycle.read_bootstrap_app_root", lambda: cfg.app_root.resolve(strict=False))
+    monkeypatch.setattr("sol.install.lifecycle._process_running", lambda pid: False)
+
+    result = uninstall_installation(cfg, install_config_path=install_cfg)
+
+    assert result["runtime_root"]["state"] == "removed"
+    assert result["app_root"]["state"] == "removed"
+    assert result["install_config"]["state"] == "removed"
+    assert result["launchers"]["nexai"]["state"] == "removed"
+    assert result["launchers"]["sol"]["state"] == "removed"
+    assert result["bootstrap_record"]["state"] == "removed"
+    assert not cfg.runtime_root.exists()
+    assert not cfg.app_root.exists()
+    assert not install_cfg.exists()
+
+
+def test_uninstall_can_keep_app_root(tmp_path: Path, monkeypatch) -> None:
+    app_root = tmp_path / "app"
+    (app_root / "SolVersion2" / "plugins").mkdir(parents=True)
+    (app_root / "SolVersion2" / "skills").mkdir(parents=True)
+    (app_root / "SolVersion2" / "pyproject.toml").write_text("[project]\nname='solversion2'\nversion='0.0.0'\n", encoding="utf-8")
+    (app_root / "SolVersion2" / "Server" / "data" / "features").mkdir(parents=True)
+    (app_root / "apps" / "api" / "sol_api").mkdir(parents=True)
+    cfg = build_install_config(
+        app_root=app_root,
+        runtime_root=tmp_path / "runtime",
+        working_dir=tmp_path / "work",
+        profile=InstallProfile.SERVER,
+        model_provider="stub",
+        api_host="127.0.0.1",
+        api_port=8420,
+        web_host="127.0.0.1",
+        web_port=5173,
+        service_mode=ServiceMode.NONE,
+    )
+    _stub_managed_runtime(monkeypatch)
+    ensure_installation_ready(cfg)
+    install_cfg = tmp_path / "install.json"
+    save_install_config(cfg, install_cfg)
+    monkeypatch.setattr("sol.install.lifecycle.canonical_user_launcher_path", lambda: tmp_path / "bin" / "nexai")
+    monkeypatch.setattr("sol.install.lifecycle.compatibility_user_launcher_path", lambda: tmp_path / "bin" / "sol")
+    monkeypatch.setattr("sol.install.lifecycle.bootstrap_app_root_record_path", lambda: tmp_path / "bootstrap" / "app_root.txt")
+    monkeypatch.setattr("sol.install.lifecycle.read_bootstrap_app_root", lambda: None)
+    monkeypatch.setattr("sol.install.lifecycle._process_running", lambda pid: False)
+
+    result = uninstall_installation(cfg, install_config_path=install_cfg, remove_app_root=False)
+
+    assert result["runtime_root"]["state"] == "removed"
+    assert result["app_root"]["state"] == "kept"
+    assert cfg.app_root.exists()
 
 
 def test_start_failure_reports_log_path_and_log_tail(tmp_path: Path, monkeypatch) -> None:

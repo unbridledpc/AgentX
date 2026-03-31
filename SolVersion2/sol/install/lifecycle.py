@@ -18,7 +18,14 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from sol.install.bootstrap import bootstrap_python_path, default_user_launcher_path, write_bootstrap_launcher
+from sol.install.bootstrap import (
+    bootstrap_app_root_record_path,
+    bootstrap_python_path,
+    default_user_launcher_path,
+    read_bootstrap_app_root,
+    validate_app_bundle,
+    write_bootstrap_launcher,
+)
 from sol.install.deps import dependency_report, install_target_for_config, missing_dependency_messages, profile_extra_name, required_dependency_packages
 from sol.install.local_profile import resolve_local_profile
 from sol.install.models import InstallConfig, InstallPaths, InstallProfile, ServiceMode
@@ -79,6 +86,10 @@ def compatibility_user_launcher_path() -> Path:
 
 def canonical_bootstrap_fallback() -> str:
     return f"{bootstrap_python_path()} -m sol"
+
+
+def _resolved_path(path: Path) -> Path:
+    return path.expanduser().resolve(strict=False)
 
 
 def load_installation(path: Path | None = None) -> InstallConfig:
@@ -910,14 +921,168 @@ def _stop_pid(pid_path: Path) -> dict[str, Any]:
 def stop_installation(config: InstallConfig) -> dict[str, Any]:
     paths = compute_install_paths(config)
     if config.service_mode == ServiceMode.SYSTEMD_USER:
+        svc = systemd_status(config)
         names = _systemd_unit_names(config)
-        if names:
-            systemctl_user("stop", *names)
-        return {name.removeprefix("sol-").removesuffix(".service"): {"state": "stopped"} for name in names}
+        active_names = [name for name in names if str((svc.get(name) or {}).get("active", "")).strip().lower() in {"active", "activating", "reloading"}]
+        if active_names:
+            systemctl_user("stop", *active_names)
+        out: dict[str, Any] = {}
+        for name in names:
+            key = name.removeprefix("sol-").removesuffix(".service")
+            active = str((svc.get(name) or {}).get("active", "unknown")).strip().lower()
+            out[key] = {"state": "stopped" if name in active_names else "already_stopped"}
+        return out
     return {
         "api": _stop_pid(paths.api_pid_path),
         "web": _stop_pid(paths.web_pid_path),
     }
+
+
+def restart_installation(config: InstallConfig, *, install_config_path: Path | None = None) -> dict[str, Any]:
+    stopped = stop_installation(config)
+    failures = [
+        f"{name}: {item.get('state')}"
+        for name, item in stopped.items()
+        if isinstance(item, dict) and str(item.get("state", "")).strip().lower() in {"stop_timeout", "failed"}
+    ]
+    if failures:
+        return {"ok": False, "stop": stopped, "start": {}, "error": "; ".join(failures)}
+    started = start_installation(config, install_config_path=install_config_path)
+    return {"ok": True, "stop": stopped, "start": started}
+
+
+def _path_has_install_markers(path: Path, markers: tuple[str, ...]) -> bool:
+    resolved = _resolved_path(path)
+    return any((resolved / marker).exists() for marker in markers)
+
+
+def _looks_like_install_runtime_root(path: Path) -> bool:
+    return _path_has_install_markers(path, ("config", "data", "logs", "run", "state"))
+
+
+def _looks_like_app_bundle(path: Path) -> bool:
+    return not validate_app_bundle(_resolved_path(path))
+
+
+def _is_dangerous_remove_target(path: Path) -> bool:
+    resolved = _resolved_path(path)
+    home = Path.home().expanduser().resolve(strict=False)
+    if resolved == resolved.anchor or str(resolved) in {"/", "\\"}:
+        return True
+    if resolved == home:
+        return True
+    return False
+
+
+def _remove_tree_if_safe(path: Path, *, kind: str, allow: bool) -> dict[str, Any]:
+    resolved = _resolved_path(path)
+    if not allow:
+        return {"state": "kept", "path": str(resolved)}
+    if not resolved.exists():
+        return {"state": "already_absent", "path": str(resolved)}
+    if _is_dangerous_remove_target(resolved):
+        return {"state": "skipped", "path": str(resolved), "warning": f"Refused to remove unsafe {kind} target."}
+    shutil.rmtree(resolved)
+    return {"state": "removed", "path": str(resolved)}
+
+
+def _remove_file_if_matches(path: Path, *, expected_app_root: Path) -> dict[str, Any]:
+    resolved = _resolved_path(path)
+    if not resolved.exists():
+        return {"state": "already_absent", "path": str(resolved)}
+    try:
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return {"state": "skipped", "path": str(resolved), "warning": f"Could not inspect launcher: {exc}"}
+    marker = f'export SOL_BOOTSTRAP_APP_ROOT="{_resolved_path(expected_app_root)}"'
+    if marker not in text:
+        return {"state": "skipped", "path": str(resolved), "warning": "Launcher does not appear to belong to this install."}
+    resolved.unlink(missing_ok=True)
+    return {"state": "removed", "path": str(resolved)}
+
+
+def uninstall_installation(
+    config: InstallConfig,
+    *,
+    install_config_path: Path | None = None,
+    remove_app_root: bool = True,
+) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    install_cfg = _resolved_path(install_config_path or default_install_config_path())
+    result: dict[str, Any] = {
+        "stopped": {},
+        "launchers": {},
+        "systemd_units": {},
+        "runtime_root": {},
+        "app_root": {},
+        "install_config": {},
+        "bootstrap_record": {},
+        "warnings": [],
+    }
+
+    try:
+        result["stopped"] = stop_installation(config)
+    except Exception as exc:
+        result["warnings"].append(f"Stop step failed: {exc}")
+
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        try:
+            disable_systemd_units(config)
+        except Exception as exc:
+            result["warnings"].append(f"Disabling systemd-user units failed: {exc}")
+        try:
+            removed = remove_systemd_units(paths)
+            result["systemd_units"] = {
+                "state": "removed" if removed else "already_absent",
+                "paths": [str(path) for path in removed],
+            }
+        except Exception as exc:
+            manual_removed: list[str] = []
+            for name in ("sol-api.service", "sol-web.service"):
+                unit_path = _service_dir() / name
+                if unit_path.exists():
+                    unit_path.unlink(missing_ok=True)
+                    manual_removed.append(str(unit_path))
+            result["systemd_units"] = {
+                "state": "removed" if manual_removed else "skipped",
+                "paths": manual_removed,
+            }
+            result["warnings"].append(f"Systemd cleanup fell back to manual unit removal: {exc}")
+
+    result["launchers"]["nexai"] = _remove_file_if_matches(canonical_user_launcher_path(), expected_app_root=config.app_root)
+    result["launchers"]["sol"] = _remove_file_if_matches(compatibility_user_launcher_path(), expected_app_root=config.app_root)
+
+    runtime_allow = _looks_like_install_runtime_root(paths.runtime_root)
+    if not runtime_allow and paths.runtime_root.exists():
+        result["warnings"].append(f"Skipped runtime root removal because it did not match the expected NexAI runtime layout: {paths.runtime_root}")
+    result["runtime_root"] = _remove_tree_if_safe(paths.runtime_root, kind="runtime root", allow=runtime_allow)
+
+    app_allow = remove_app_root and _looks_like_app_bundle(config.app_root)
+    if remove_app_root and not app_allow and config.app_root.exists():
+        result["warnings"].append(f"Skipped app bundle removal because it does not look like a NexAI bundle: {config.app_root}")
+    result["app_root"] = _remove_tree_if_safe(config.app_root, kind="app bundle", allow=app_allow)
+
+    if install_cfg.exists():
+        install_cfg.unlink(missing_ok=True)
+        result["install_config"] = {"state": "removed", "path": str(install_cfg)}
+    else:
+        result["install_config"] = {"state": "already_absent", "path": str(install_cfg)}
+
+    try:
+        bootstrap_record = bootstrap_app_root_record_path()
+        recorded_app_root = read_bootstrap_app_root()
+    except Exception:
+        bootstrap_record = None
+        recorded_app_root = None
+    if bootstrap_record is None:
+        result["bootstrap_record"] = {"state": "unknown"}
+    elif recorded_app_root and _resolved_path(recorded_app_root) == _resolved_path(config.app_root) and bootstrap_record.exists():
+        bootstrap_record.unlink(missing_ok=True)
+        result["bootstrap_record"] = {"state": "removed", "path": str(bootstrap_record)}
+    else:
+        result["bootstrap_record"] = {"state": "kept", "path": str(bootstrap_record)}
+
+    return result
 
 
 def status_installation(config: InstallConfig) -> dict[str, Any]:

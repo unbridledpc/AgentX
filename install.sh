@@ -280,7 +280,10 @@ main() {
 
   info "Next steps:"
   printf '  %s start\n' "$launcher"
+  printf '  %s stop\n' "$launcher"
+  printf '  %s restart\n' "$launcher"
   printf '  %s status\n' "$launcher"
+  printf '  %s uninstall\n' "$launcher"
   printf '  %s doctor\n' "$launcher"
   printf '  Web UI: http://127.0.0.1:5173\n'
   if [[ "$provider" == "ollama" ]]; then

@@ -20,7 +20,9 @@ from sol.install import (
     show_paths,
     start_installation,
     status_installation,
+    restart_installation,
     stop_installation,
+    uninstall_installation,
     write_installation,
     write_cli_launcher,
 )
@@ -169,6 +171,91 @@ def _print_start_result(result: dict) -> None:
         )
 
 
+def _print_stop_result(result: dict[str, object]) -> None:
+    section("Shutdown", subtitle="Stopping NexAI services.")
+    services = result.get("services", {}) if isinstance(result.get("services"), dict) else result
+    for name, item in services.items():
+        payload = item if isinstance(item, dict) else {"state": str(item)}
+        state = str(payload.get("state", "unknown"))
+        detail = payload.get("warning") or payload.get("error") or payload.get("path") or payload.get("pid") or ""
+        preflight_result(_service_state_level(state), f"{str(name).upper()}  {state}", str(detail))
+    next_steps_panel(
+        "Next Useful Commands",
+        [
+            "nexai start",
+            "nexai status",
+            "nexai logs api --tail 100",
+        ],
+    )
+
+
+def _print_restart_result(result: dict[str, object]) -> None:
+    section("Restart", subtitle="Cycling NexAI services.")
+    if not bool(result.get("ok")):
+        failure_panel(
+            "Restart Failed",
+            str(result.get("error", "NexAI could not complete the restart sequence.")),
+            guidance=["Run `nexai stop` and inspect logs before retrying."],
+        )
+        _print_stop_result({"services": result.get("stop", {})})
+        return
+    _print_stop_result({"services": result.get("stop", {})})
+    _print_start_result(result.get("start", {}))
+
+
+def _print_uninstall_result(result: dict[str, object]) -> None:
+    section("Uninstall", subtitle="Removing the local NexAI install.")
+    summary_panel(
+        "Removed or Kept",
+        [
+            f"Runtime root: {((result.get('runtime_root') or {}).get('state', 'unknown'))}",
+            f"App bundle: {((result.get('app_root') or {}).get('state', 'unknown'))}",
+            f"Install config: {((result.get('install_config') or {}).get('state', 'unknown'))}",
+            f"Bootstrap record: {((result.get('bootstrap_record') or {}).get('state', 'unknown'))}",
+        ],
+        style="#5B8CFF",
+    )
+    launchers = result.get("launchers", {}) if isinstance(result.get("launchers"), dict) else {}
+    if launchers:
+        section("Launchers")
+        for name, item in launchers.items():
+            payload = item if isinstance(item, dict) else {"state": str(item)}
+            preflight_result(_service_state_level(str(payload.get("state", "unknown"))), str(name), str(payload.get("path", "")))
+    units = result.get("systemd_units", {}) if isinstance(result.get("systemd_units"), dict) else {}
+    if units:
+        section("Systemd Units")
+        preflight_result(_service_state_level(str(units.get("state", "unknown"))), "systemd-user", ", ".join(units.get("paths", [])) if isinstance(units.get("paths"), list) else str(units.get("paths", "")))
+    warnings = [str(item) for item in result.get("warnings", []) if str(item).strip()]
+    if warnings:
+        section("Warnings")
+        bullet_list(warnings, style="warn")
+    next_steps_panel(
+        "Lifecycle Commands",
+        [
+            "nexai setup",
+            "nexai start",
+            "nexai status",
+        ],
+        notes=["Re-run `install.sh` or `install-sol.sh` if you want to install NexAI again."],
+    )
+
+
+def _confirm_uninstall(install, *, keep_app_root: bool) -> bool:
+    app_behavior = "keep the app bundle checkout" if keep_app_root else "remove the app bundle checkout"
+    section("Confirm Uninstall", subtitle="This removes the local NexAI install managed by this launcher.")
+    bullet_list(
+        [
+            f"Runtime root: {install.runtime_root}",
+            f"Install config: {default_install_config_path()}",
+            f"App bundle: {install.app_root} ({app_behavior})",
+            f"Launchers: {canonical_user_launcher_path()} and {compatibility_user_launcher_path()} when they belong to this install",
+        ],
+        style="warn",
+    )
+    response = input("Continue uninstall? [y/N]: ").strip().lower()
+    return response in {"y", "yes"}
+
+
 def _print_status_result(result: dict) -> None:
     section("Status", subtitle="Current NexAI runtime and service state.")
     key_value_table(
@@ -290,7 +377,11 @@ def _print_health_report(result: dict[str, object]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="nexai", description="NexAI local-first assistant CLI")
+    p = argparse.ArgumentParser(
+        prog="nexai",
+        description="NexAI local-first assistant CLI",
+        epilog="Lifecycle commands: nexai start | stop | restart | status | uninstall",
+    )
     p.add_argument(
         "--config",
         default="config/sol.toml",
@@ -401,6 +492,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("stop", help="Stop installed NexAI services")
     sub.add_parser("restart", help="Restart installed NexAI services")
     sub.add_parser("status", help="Show installed NexAI runtime status")
+    uninstall = sub.add_parser("uninstall", help="Remove the local NexAI install managed by this launcher")
+    uninstall.add_argument("--yes", action="store_true", help="Skip the uninstall confirmation prompt")
+    uninstall.add_argument("--keep-app-root", action="store_true", help="Keep the app bundle checkout and remove launcher/runtime state only")
     doctor = sub.add_parser("doctor", help="Run install/runtime diagnostics")
     doctor.add_argument("--fix", action="store_true", help="Apply safe automatic fixes, then re-run diagnostics")
     sub.add_parser("health", help="Run a fast read-only NexAI health check")
@@ -598,7 +692,10 @@ def main(argv: list[str] | None = None) -> int:
             [
                 "nexai doctor",
                 "nexai start",
+                "nexai stop",
+                "nexai restart",
                 "nexai status",
+                "nexai uninstall",
             ],
             notes=[
                 f"Launcher: {launcher_path}",
@@ -611,7 +708,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if args.cmd in {"start", "stop", "restart", "status", "doctor", "health", "paths", "runtime", "service", "logs"} or (args.cmd == "config" and args.config_cmd == "show") or args.cmd == "internal":
+    if args.cmd in {"start", "stop", "restart", "status", "uninstall", "doctor", "health", "paths", "runtime", "service", "logs"} or (args.cmd == "config" and args.config_cmd == "show") or args.cmd == "internal":
         install = load_installation(install_cfg_path)
         if args.cmd == "start":
             result = run_with_status("Starting NexAI services", start_installation, install, install_config_path=install_cfg_path)
@@ -619,17 +716,33 @@ def main(argv: list[str] | None = None) -> int:
             service_states = [item.get("state") for item in result.get("services", {}).values()]
             return 0 if all(state in {"started", "already_running", "disabled"} for state in service_states) else 2
         if args.cmd == "stop":
-            print(json.dumps(stop_installation(install), ensure_ascii=False, indent=2))
-            return 0
+            result = run_with_status("Stopping NexAI services", stop_installation, install)
+            _print_stop_result({"services": result})
+            stop_states = [str((item or {}).get("state", "")) for item in result.values() if isinstance(item, dict)]
+            return 0 if all(state in {"stopped", "already_stopped", "not_running", "stale_pid_removed", "disabled"} for state in stop_states) else 2
         if args.cmd == "restart":
-            stop_installation(install)
-            result = run_with_status("Restarting NexAI services", start_installation, install, install_config_path=install_cfg_path)
-            _print_start_result(result)
-            service_states = [item.get("state") for item in result.get("services", {}).values()]
+            result = run_with_status("Restarting NexAI services", restart_installation, install, install_config_path=install_cfg_path)
+            _print_restart_result(result)
+            if not bool(result.get("ok")):
+                return 2
+            service_states = [item.get("state") for item in (result.get("start", {}) or {}).get("services", {}).values()]
             return 0 if all(state in {"started", "already_running", "disabled"} for state in service_states) else 2
         if args.cmd == "status":
             result = run_with_status("Inspecting NexAI status", status_installation, install)
             _print_status_result(result)
+            return 0
+        if args.cmd == "uninstall":
+            if not getattr(args, "yes", False) and not _confirm_uninstall(install, keep_app_root=bool(getattr(args, "keep_app_root", False))):
+                ui_note("Uninstall cancelled.")
+                return 1
+            result = run_with_status(
+                "Removing the local NexAI install",
+                uninstall_installation,
+                install,
+                install_config_path=install_cfg_path,
+                remove_app_root=not bool(getattr(args, "keep_app_root", False)),
+            )
+            _print_uninstall_result(result)
             return 0
         if args.cmd == "doctor":
             if getattr(args, "fix", False):

@@ -83,7 +83,7 @@ def test_run_task_via_api_returns_clean_message_when_api_unreachable(tmp_path: P
     monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=60.0: (_ for _ in ()).throw(urllib.error.URLError("boom")))
     result = run_task_via_api(config, "say hello")
     assert result.ok is False
-    assert result.text == "NexAI API is not running. Try: nexai service status"
+    assert result.text == "NexAI API is not running. Try: nexai status or nexai start"
     assert result.exit_code == 1
 
 
