@@ -2546,6 +2546,17 @@ class Agent:
         "web.ingest_crawl": {"include_patterns", "exclude_patterns", "tag_prefix", "collection", "extract_mode", "write_manifest", "max_pages", "max_depth", "delay_ms"},
     }
 
+    _FILE_SYNTAX_WORDS: set[str] = {
+        "a",
+        "an",
+        "the",
+        "new",
+        "file",
+        "named",
+        "called",
+        "at",
+    }
+
     def _normalize_tool_name(self, name: str) -> str:
         raw = (name or "").strip()
         if not raw:
@@ -2717,7 +2728,7 @@ class Agent:
             candidate = token.strip().rstrip(").,;!?\"'")
             if not candidate:
                 continue
-            if candidate.lower() in {"named", "called", "file"}:
+            if candidate.lower() in self._FILE_SYNTAX_WORDS:
                 continue
             if self._looks_like_relative_path(candidate):
                 return candidate
@@ -2735,8 +2746,15 @@ class Agent:
         m = re.search(r"([A-Za-z]:[\\/][^\s]+)", text)
         if m:
             return _clean(m.group(1))
+        m_posix = re.search(r"(/(?:[^\s\"']+))", text)
+        if m_posix:
+            candidate = _clean(m_posix.group(1))
+            if candidate not in {"/", "//"}:
+                return candidate
         for m_rel in re.finditer(r"(?<![\w./\\-])((?:\.{1,2}[\\/]|~[\\/])?[A-Za-z0-9_.-]+(?:[\\/][A-Za-z0-9_.-]+)*)", text):
             candidate = _clean(m_rel.group(1))
+            if candidate.lower() in self._FILE_SYNTAX_WORDS:
+                continue
             if self._looks_like_relative_path(candidate):
                 return candidate
         root = self._extract_drive_root(text)

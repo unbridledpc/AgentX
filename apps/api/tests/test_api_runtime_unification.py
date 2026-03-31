@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from types import SimpleNamespace
+from pathlib import Path, PurePosixPath
 
 from fastapi.testclient import TestClient
 
@@ -11,12 +13,63 @@ from sol_api.config import config
 from sol_api.rag.session import session_tracker
 import sol_api.routes.settings as settings_route
 from sol_api.routes.settings import SettingsModel
+from sol.config import load_config
+from sol.core.agent import Agent
+from sol.core.audit import AuditLog
+from sol.core.context import SolContext
+from sol.core.journal import Journal
+from sol.core.unsafe_mode import disable as disable_unsafe
+from sol.core.unsafe_mode import enable as enable_unsafe
+from sol.core.working_memory import WorkingMemoryManager
+from sol.runtime.paths import build_runtime_paths, ensure_runtime_dirs
+from sol.tools.fs import FsWriteTool
+from sol.tools.registry import ToolRegistry
+from conftest import write_test_config
 
 
 def _auth_headers(client: TestClient) -> dict[str, str]:
     res = client.post("/v1/auth/login", json={"username": "alice", "password": "alice-pass"})
     assert res.status_code == 200, res.text
     return {"Authorization": f"Bearer {res.json()['token']}"}
+
+
+def _build_live_agent(tmp_path: Path) -> tuple[Agent, Path]:
+    write_test_config(tmp_path)
+    cfg = load_config(str(tmp_path / "config" / "sol.toml"))
+    runtime_paths = build_runtime_paths(cfg)
+    ensure_runtime_dirs(runtime_paths)
+    wm = WorkingMemoryManager()
+    ctx = SolContext(
+        cfg=cfg,
+        journal=Journal(cfg),
+        audit=AuditLog(cfg.audit.log_path),
+        confirm=lambda prompt: True,
+        web_session_user="tester",
+        web_session_thread_id="thread-1",
+        working_memory_manager=wm,
+        working_memory=wm.for_scope(user_id="tester", thread_id="thread-1"),
+    )
+    registry = ToolRegistry()
+    registry.register(FsWriteTool())
+    agent = Agent.create(ctx=ctx, tools=registry)
+    work_dir = agent.ctx.cfg.paths.working_dir.resolve(strict=False)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    object.__setattr__(agent.ctx.cfg.fs, "allowed_roots", (work_dir, work_dir / "_posix_root"))
+    object.__setattr__(agent.ctx.cfg.fs, "deny_drive_letters", tuple())
+    object.__setattr__(agent.ctx.cfg.fs, "denied_substrings", tuple())
+    posix_root = work_dir / "_posix_root"
+    posix_root.mkdir(parents=True, exist_ok=True)
+    original_resolve = agent._resolve_fs_path
+
+    def _resolve_for_test(raw: str) -> str:
+        value = (raw or "").strip()
+        if value.startswith("/"):
+            rel = PurePosixPath(value).relative_to(PurePosixPath("/"))
+            return str((posix_root.joinpath(*rel.parts)).resolve(strict=False))
+        return original_resolve(value)
+
+    agent._resolve_fs_path = _resolve_for_test  # type: ignore[method-assign]
+    return agent, work_dir
 
 
 def test_chat_prefers_solv2_runtime_path(monkeypatch, tmp_path) -> None:
@@ -96,3 +149,58 @@ def test_runtime_state_exposes_working_memory_snapshot(monkeypatch, tmp_path) ->
     payload = response.json()["state"]
     assert payload["working_memory"]["goal"] == "Inspect repo"
     assert payload["working_memory"]["decisions"][0]["action"] == "run_plan"
+
+
+def test_chat_live_route_honors_requested_paths_and_avoids_helper_words(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, work_dir = _build_live_agent(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+
+    cases = [
+        ("create a file named demo.txt with content hello", work_dir / "demo.txt", "hello"),
+        ('create a new file called pythoncode.py with content print("hello")', work_dir / "pythoncode.py", 'print("hello")'),
+        ("create a file at /home/nexus/demo.txt with content hello", work_dir / "_posix_root" / "home" / "nexus" / "demo.txt", "hello"),
+        ("create /home/nexus/demo2.txt with content hello", work_dir / "_posix_root" / "home" / "nexus" / "demo2.txt", "hello"),
+    ]
+
+    for prompt, expected_path, expected_content in cases:
+        response = client.post("/v1/chat", json={"message": prompt, "thread_id": None})
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert "fs.write_text: OK" in payload["content"]
+        assert expected_path.exists()
+        assert expected_path.read_text(encoding="utf-8") == expected_content
+
+    target = work_dir / "demo.txt"
+    target.write_text("before", encoding="utf-8")
+    enable_unsafe("thread-1", reason="Allow overwrite in API test", user="tester", cfg=agent.ctx.cfg)
+    try:
+        response = client.post("/v1/chat", json={"message": "edit demo.txt and replace its contents with hello again", "thread_id": None})
+    finally:
+        disable_unsafe("thread-1", reason="Reset API test state", user="tester", cfg=agent.ctx.cfg)
+    assert response.status_code == 200, response.text
+    assert target.read_text(encoding="utf-8") == "hello again"
+
+    assert not (work_dir / "named").exists()
+    assert not (work_dir / "at").exists()

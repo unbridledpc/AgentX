@@ -224,3 +224,17 @@ def test_chat_edit_replaces_existing_file_contents(tmp_path: Path) -> None:
     assert result.tool_results
     assert result.tool_results[0].tool == "fs.write_text"
     assert result.tool_results[0].output["path"] == str(target)
+
+
+def test_posix_absolute_write_prompt_is_tool_addressable(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+    prompt = "create a file at /home/nexus/demo.txt with content hello"
+
+    assert agent._extract_write_path(prompt) == "/home/nexus/demo.txt"
+    assert agent._extract_path(prompt) == "/home/nexus/demo.txt"
+    assert agent._request_is_tool_addressable(prompt) is True
+    forced = agent._plan_for_tool_authority(prompt)
+    assert forced
+    assert forced[0].tool_name == "fs.write_text"
+    assert forced[0].arguments["path"].endswith(str(Path("home") / "nexus" / "demo.txt"))
+    assert not (work_dir / "at").exists()
