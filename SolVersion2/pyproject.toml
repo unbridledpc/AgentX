@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solversion2"
+dynamic = ["version"]
+description = "NexAI local-first AI assistant runtime"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "rich>=13.7",
+]
+
+[project.optional-dependencies]
+cli = []
+server = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+]
+standard = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+]
+developer = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+  "pytest>=8.0",
+]
+
+[tool.setuptools]
+include-package-data = false
+package-dir = {"" = "."}
+
+[tool.setuptools.dynamic]
+version = {attr = "sol.version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sol", "sol.*"]
+
+[project.scripts]
+nexai = "sol.cli:main"
+sol = "sol.cli:main"

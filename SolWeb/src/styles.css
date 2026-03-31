@@ -1,0 +1,1596 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.1), transparent 28%),
+    radial-gradient(circle at 80% 20%, rgba(59, 130, 246, 0.1), transparent 24%),
+    linear-gradient(180deg, #020617 0%, #06111f 48%, #020617 100%);
+  color: #e2e8f0;
+  font-feature-settings: "ss01" 1;
+}
+
+button,
+input,
+textarea,
+select {
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.24);
+  color: #f8fafc;
+}
+
+.nexus-shell {
+  --nexus-shell-cyan-alpha: 0.08;
+  --nexus-shell-blue-alpha: 0.08;
+  --nexus-status-pulse-opacity: 0.28;
+  position: relative;
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, var(--nexus-shell-cyan-alpha)), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(59, 130, 246, var(--nexus-shell-blue-alpha)), transparent 18%);
+}
+
+.nexus-shell[data-appearance-preset="midnight"] {
+  --nexus-shell-cyan-alpha: 0.05;
+  --nexus-shell-blue-alpha: 0.05;
+}
+
+.nexus-shell[data-appearance-preset="ice"] {
+  --nexus-shell-cyan-alpha: 0.12;
+  --nexus-shell-blue-alpha: 0.1;
+}
+
+.nexus-shell[data-accent-intensity="soft"] {
+  --nexus-status-pulse-opacity: 0.18;
+}
+
+.nexus-shell[data-accent-intensity="vivid"] {
+  --nexus-status-pulse-opacity: 0.42;
+}
+
+.nexus-shell[data-density-mode="compact"] .nexus-main-panel {
+  padding: 0.875rem;
+}
+
+.nexus-shell[data-density-mode="compact"] .nexus-composer,
+.nexus-shell[data-density-mode="compact"] .nexus-feed {
+  padding: 0.875rem;
+}
+
+.nexus-shell[data-density-mode="airy"] .nexus-main-panel {
+  padding: 1.25rem;
+}
+
+.nexus-shell[data-density-mode="airy"] .nexus-composer,
+.nexus-shell[data-density-mode="airy"] .nexus-feed {
+  padding: 1.25rem;
+}
+
+.nexus-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(34, 211, 238, 0.44) 18%, rgba(59, 130, 246, 0.28) 52%, transparent 100%);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.nexus-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.45), transparent 85%);
+}
+
+.nexus-feed {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.92)),
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.05), transparent 24%);
+}
+
+.nexus-feed__stack {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.nexus-main-panel {
+  background:
+    linear-gradient(180deg, rgba(8, 15, 27, 0.92), rgba(3, 8, 18, 0.88)),
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.05), transparent 26%);
+}
+
+.nexus-topbar {
+  border-color: rgba(30, 41, 59, 0.9);
+}
+
+.nexus-topbar__controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+}
+
+.nexus-topbar__field {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.nexus-panel {
+  position: relative;
+}
+
+.nexus-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(125, 211, 252, 0.04);
+  pointer-events: none;
+}
+
+.nexus-feed-empty {
+  border: 1px dashed rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.44);
+}
+
+.nexus-feed-empty__card {
+  max-width: 32rem;
+}
+
+.nexus-feed-empty__title {
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.nexus-feed-empty__copy {
+  margin-top: 0.55rem;
+  color: rgba(203, 213, 225, 0.84);
+  line-height: 1.65;
+}
+
+.nexus-feed-empty__eyebrow {
+  color: rgba(186, 230, 253, 0.58);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.nexus-responding {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+  margin-top: 0.75rem;
+}
+
+.nexus-responding__body {
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: min(100%, 40rem);
+}
+
+.nexus-responding__bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(51, 65, 85, 0.86);
+  background: linear-gradient(180deg, rgba(10, 18, 32, 0.9), rgba(8, 15, 27, 0.88));
+  padding: 0.8rem 0.95rem;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.04),
+    0 10px 24px rgba(2, 8, 23, 0.18);
+}
+
+.nexus-responding__text {
+  color: rgba(226, 232, 240, 0.86);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+.nexus-responding__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.nexus-responding__dots span {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 9999px;
+  background: rgba(125, 211, 252, 0.88);
+  animation: nexus-responding-dot 1.15s ease-in-out infinite;
+}
+
+.nexus-responding__dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.nexus-responding__dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes nexus-responding-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+
+  40% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}
+
+.nexus-composer {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(2, 6, 23, 0.92)),
+    radial-gradient(circle at top right, rgba(34, 211, 238, 0.06), transparent 22%);
+}
+
+.nexus-composer textarea::placeholder {
+  color: rgba(148, 163, 184, 0.72);
+}
+
+.nexus-chat-with-canvas {
+  position: relative;
+}
+
+.nexus-chat-pane--hidden {
+  display: none;
+}
+
+.nexus-code-canvas {
+  position: relative;
+  min-width: 0;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(51, 65, 85, 0.88);
+  background:
+    linear-gradient(180deg, rgba(7, 14, 26, 0.98), rgba(4, 10, 20, 0.96)),
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.04), transparent 34%);
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.04),
+    0 18px 36px rgba(2, 8, 23, 0.24);
+  overflow: hidden;
+}
+
+.nexus-code-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--nexus-code-canvas-accent, rgba(34, 211, 238, 0.18));
+  opacity: 0.45;
+  pointer-events: none;
+  animation: nexus-code-canvas-pulse 2.6s ease-in-out infinite;
+}
+
+.nexus-code-canvas--docked {
+  width: min(42vw, 34rem);
+  flex: 0 0 min(42vw, 34rem);
+  display: flex;
+  flex-direction: column;
+}
+
+.nexus-code-canvas--fullscreen {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+
+.nexus-code-canvas--typescript {
+  --nexus-code-canvas-accent: rgba(96, 165, 250, 0.34);
+}
+
+.nexus-code-canvas--javascript {
+  --nexus-code-canvas-accent: rgba(250, 204, 21, 0.32);
+}
+
+.nexus-code-canvas--python {
+  --nexus-code-canvas-accent: rgba(245, 158, 11, 0.32);
+}
+
+.nexus-code-canvas--html {
+  --nexus-code-canvas-accent: rgba(249, 115, 22, 0.32);
+}
+
+.nexus-code-canvas--css {
+  --nexus-code-canvas-accent: rgba(34, 211, 238, 0.32);
+}
+
+.nexus-code-canvas--json {
+  --nexus-code-canvas-accent: rgba(167, 139, 250, 0.32);
+}
+
+.nexus-code-canvas--shell {
+  --nexus-code-canvas-accent: rgba(74, 222, 128, 0.3);
+}
+
+.nexus-code-canvas--csharp {
+  --nexus-code-canvas-accent: rgba(192, 132, 252, 0.32);
+}
+
+.nexus-code-canvas--rust {
+  --nexus-code-canvas-accent: rgba(251, 146, 60, 0.32);
+}
+
+.nexus-code-canvas__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 1rem 1rem 0.85rem;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.72);
+  background: rgba(9, 16, 28, 0.84);
+}
+
+.nexus-code-canvas__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.nexus-code-canvas__eyebrow {
+  color: rgba(186, 230, 253, 0.62);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.nexus-code-canvas__title {
+  margin-top: 0.2rem;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.nexus-code-canvas__language {
+  border-radius: 9999px;
+  border: 1px solid rgba(51, 65, 85, 0.88);
+  background: rgba(15, 23, 42, 0.8);
+  color: rgba(226, 232, 240, 0.88);
+  padding: 0.34rem 0.68rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nexus-code-canvas__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.nexus-code-canvas__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: rgba(148, 163, 184, 0.76);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.nexus-code-canvas__editor-wrap {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 0 0.1rem 0.1rem;
+}
+
+.nexus-code-canvas__editor {
+  min-height: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.86rem;
+  line-height: 1.62;
+}
+
+.nexus-code-canvas__editor:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.3);
+}
+
+.nexus-message-canvas-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.8rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(51, 65, 85, 0.76);
+  background: rgba(8, 15, 27, 0.56);
+}
+
+.nexus-message-canvas-note__meta {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.nexus-message-canvas-note__title {
+  color: #f8fafc;
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.nexus-message-canvas-note__details {
+  color: rgba(148, 163, 184, 0.78);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.nexus-message-canvas-note__button {
+  border: 1px solid rgba(51, 65, 85, 0.88);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.74);
+  color: rgba(226, 232, 240, 0.92);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.nexus-message-canvas-note__button:hover {
+  border-color: rgba(103, 232, 249, 0.24);
+  color: #f8fafc;
+}
+
+.nexus-message-canvas-note__button:focus-visible {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+}
+
+@keyframes nexus-code-canvas-pulse {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+
+  50% {
+    opacity: 0.48;
+  }
+}
+
+.nexus-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.nexus-badge--compact {
+  gap: 0.55rem;
+}
+
+.nexus-badge__dot {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, rgba(103, 232, 249, 1), rgba(59, 130, 246, 0.92));
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.08), 0 0 18px rgba(34, 211, 238, 0.22);
+  flex: 0 0 auto;
+}
+
+.nexus-badge__title {
+  color: #f8fafc;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nexus-badge__subtitle {
+  color: rgba(148, 163, 184, 0.72);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nexus-status-pill {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(9, 14, 25, 0.92));
+  border-color: rgba(51, 65, 85, 0.9);
+  color: #cbd5e1;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.04);
+}
+
+.nexus-status-pill--compact {
+  padding-inline: 0.7rem;
+  min-height: 2rem;
+  gap: 0.45rem;
+}
+
+.nexus-status-pill--ok {
+  border-color: rgba(45, 212, 191, 0.25);
+  color: #d1fae5;
+}
+
+.nexus-status-pill--warn {
+  border-color: rgba(251, 191, 36, 0.22);
+  color: #fef3c7;
+}
+
+.nexus-status-pill__dot {
+  box-shadow: 0 0 10px currentColor;
+}
+
+.nexus-status-pill__signal {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: 0 0 0.7rem;
+}
+
+.nexus-status-pill__signal::after {
+  content: "";
+  position: absolute;
+  inset: -0.28rem;
+  border-radius: 9999px;
+  border: 1px solid currentColor;
+  opacity: var(--nexus-status-pulse-opacity);
+  animation: nexus-status-pulse 1.8s ease-out infinite;
+}
+
+@keyframes nexus-status-pulse {
+  0% {
+    transform: scale(0.72);
+    opacity: 0.38;
+  }
+
+  70% {
+    transform: scale(1.2);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}
+
+.nexus-field-label {
+  color: rgba(186, 230, 253, 0.82);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nexus-helper-text {
+  color: rgba(148, 163, 184, 0.86);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.nexus-helper-text--warning {
+  color: #fcd34d;
+}
+
+.nexus-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(51, 65, 85, 0.92);
+  padding: 0.65rem 0.95rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.04);
+}
+
+.nexus-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.nexus-button:focus-visible {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(34, 211, 238, 0.14),
+    inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+.nexus-button:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.nexus-button--primary {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(9, 14, 25, 0.94));
+  border-color: rgba(34, 211, 238, 0.22);
+  color: #f8fafc;
+}
+
+.nexus-button--primary:hover:not(:disabled) {
+  border-color: rgba(103, 232, 249, 0.4);
+  background: linear-gradient(180deg, rgba(17, 28, 48, 0.98), rgba(10, 18, 31, 0.98));
+  box-shadow:
+    0 12px 30px rgba(8, 145, 178, 0.18),
+    inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+.nexus-button--secondary {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(9, 14, 25, 0.9));
+  border-color: rgba(51, 65, 85, 0.94);
+  color: #dbe7f5;
+}
+
+.nexus-button--secondary:hover:not(:disabled) {
+  border-color: rgba(103, 232, 249, 0.24);
+  background: linear-gradient(180deg, rgba(16, 26, 44, 0.96), rgba(10, 16, 29, 0.96));
+}
+
+.nexus-button--utility {
+  min-height: 2rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.78);
+  border-color: rgba(51, 65, 85, 0.88);
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.nexus-button--utility:hover:not(:disabled) {
+  border-color: rgba(103, 232, 249, 0.28);
+  color: #e0f7ff;
+  background: rgba(15, 23, 42, 0.94);
+}
+
+.nexus-button--danger {
+  background: rgba(69, 10, 10, 0.18);
+  border-color: rgba(248, 113, 113, 0.28);
+  color: #fecaca;
+}
+
+.nexus-button--danger:hover:not(:disabled) {
+  background: rgba(127, 29, 29, 0.22);
+  border-color: rgba(252, 165, 165, 0.36);
+}
+
+.nexus-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 3.25rem;
+  height: 1.95rem;
+  padding: 0.18rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(51, 65, 85, 0.9);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(9, 14, 25, 0.9));
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.04);
+  pointer-events: none;
+}
+
+.nexus-toggle:hover:not(:disabled) {
+  border-color: rgba(103, 232, 249, 0.24);
+}
+
+.nexus-toggle:focus-visible {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(34, 211, 238, 0.14),
+    inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+.nexus-toggle--on {
+  border-color: rgba(56, 189, 248, 0.3);
+  background:
+    linear-gradient(180deg, rgba(14, 30, 49, 0.96), rgba(9, 19, 33, 0.94)),
+    radial-gradient(circle at left, rgba(34, 211, 238, 0.14), transparent 42%);
+}
+
+.nexus-toggle--disabled,
+.nexus-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.nexus-toggle__thumb {
+  display: inline-block;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, rgba(226, 232, 240, 0.96), rgba(203, 213, 225, 0.92));
+  box-shadow:
+    0 6px 14px rgba(2, 8, 23, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transform: translateX(0);
+  transition: transform 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.nexus-toggle--on .nexus-toggle__thumb {
+  transform: translateX(1.28rem);
+  background: linear-gradient(180deg, rgba(186, 230, 253, 0.98), rgba(125, 211, 252, 0.92));
+  box-shadow:
+    0 6px 14px rgba(8, 145, 178, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.nexus-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  border-radius: 1rem;
+  border: 1px solid rgba(51, 65, 85, 0.84);
+  background: rgba(8, 15, 27, 0.56);
+  padding: 0.9rem 1rem;
+}
+
+.nexus-toggle-row--disabled {
+  cursor: not-allowed;
+}
+
+.nexus-toggle-row__label {
+  color: #f8fafc;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.nexus-toggle-row__helper {
+  margin-top: 0.3rem;
+  color: rgba(148, 163, 184, 0.84);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.nexus-toggle-control {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.nexus-toggle__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.nexus-toggle__input:disabled {
+  cursor: not-allowed;
+}
+
+.nexus-input,
+.nexus-textarea {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(51, 65, 85, 0.92);
+  background-color: #0f172a;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(9, 14, 25, 0.9));
+  color: #e2e8f0;
+  caret-color: #e2e8f0;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.04);
+  background-clip: padding-box;
+}
+
+.nexus-input {
+  min-height: 2.6rem;
+  padding: 0.68rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.nexus-input--compact {
+  min-height: 2.35rem;
+  padding: 0.56rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.nexus-textarea {
+  min-height: 6rem;
+  resize: none;
+  padding: 0.85rem 1rem;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.nexus-input::placeholder,
+.nexus-textarea::placeholder {
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.nexus-input:hover:not(:disabled),
+.nexus-textarea:hover:not(:disabled) {
+  border-color: rgba(103, 232, 249, 0.22);
+}
+
+.nexus-input:read-only,
+.nexus-textarea:read-only {
+  color: #dbe7f5;
+  border-color: rgba(71, 85, 105, 0.88);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(9, 14, 25, 0.86));
+}
+
+.nexus-input:focus-visible,
+.nexus-textarea:focus-visible {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(34, 211, 238, 0.14),
+    inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+.nexus-input:disabled,
+.nexus-textarea:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  color: rgba(226, 232, 240, 0.9);
+  border-color: rgba(51, 65, 85, 0.82);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(9, 14, 25, 0.82));
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.03);
+}
+
+.nexus-input:disabled::placeholder,
+.nexus-textarea:disabled::placeholder {
+  color: rgba(148, 163, 184, 0.68);
+}
+
+.nexus-input:-webkit-autofill,
+.nexus-input:-webkit-autofill:hover,
+.nexus-input:-webkit-autofill:focus,
+.nexus-textarea:-webkit-autofill,
+.nexus-textarea:-webkit-autofill:hover,
+.nexus-textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: #e2e8f0;
+  caret-color: #e2e8f0;
+  border: 1px solid rgba(51, 65, 85, 0.92);
+  -webkit-box-shadow:
+    inset 0 0 0 1000px #0f172a,
+    inset 0 1px 0 rgba(148, 163, 184, 0.04);
+  box-shadow:
+    inset 0 0 0 1000px #0f172a,
+    inset 0 1px 0 rgba(148, 163, 184, 0.04);
+  transition: background-color 9999s ease-out 0s;
+}
+
+.nexus-input:-webkit-autofill::first-line,
+.nexus-textarea:-webkit-autofill::first-line {
+  font: inherit;
+  color: #e2e8f0;
+}
+
+.nexus-input[type="number"],
+.nexus-input--number {
+  -moz-appearance: textfield;
+}
+
+.nexus-input[type="number"]::-webkit-outer-spin-button,
+.nexus-input[type="number"]::-webkit-inner-spin-button,
+.nexus-input--number::-webkit-outer-spin-button,
+.nexus-input--number::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.nexus-dropdown {
+  position: relative;
+  min-width: 0;
+}
+
+.nexus-dropdown--fit {
+  width: min(100%, var(--nexus-dropdown-fit-ch, 24ch));
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 var(--nexus-dropdown-fit-ch, 24ch);
+}
+
+.nexus-dropdown__label {
+  margin-bottom: 0.35rem;
+  color: rgba(148, 163, 184, 0.82);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nexus-dropdown__trigger {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(51, 65, 85, 0.92);
+  background-color: #0f172a;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(9, 14, 25, 0.94));
+  color: #e2e8f0;
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.04);
+  background-clip: padding-box;
+}
+
+.nexus-dropdown--fit .nexus-dropdown__value,
+.nexus-dropdown--fit .nexus-dropdown__placeholder,
+.nexus-dropdown--fit .nexus-dropdown__option {
+  white-space: nowrap;
+}
+
+.nexus-dropdown__trigger:hover:not(:disabled) {
+  border-color: rgba(103, 232, 249, 0.3);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(10, 16, 28, 0.98));
+}
+
+.nexus-dropdown__trigger:focus-visible {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(34, 211, 238, 0.14),
+    inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+.nexus-dropdown--open .nexus-dropdown__trigger {
+  border-color: rgba(56, 189, 248, 0.42);
+  box-shadow:
+    0 0 0 3px rgba(34, 211, 238, 0.1),
+    0 14px 34px rgba(2, 8, 23, 0.28),
+    inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+.nexus-dropdown--disabled .nexus-dropdown__trigger,
+.nexus-dropdown__trigger:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  color: rgba(226, 232, 240, 0.84);
+  border-color: rgba(51, 65, 85, 0.82);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(9, 14, 25, 0.82));
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.03);
+}
+
+.nexus-dropdown__value {
+  color: #e2e8f0;
+}
+
+.nexus-dropdown__placeholder {
+  color: rgba(148, 163, 184, 0.78);
+}
+
+.nexus-dropdown__chevron {
+  color: rgba(125, 211, 252, 0.8);
+  flex: 0 0 auto;
+}
+
+.nexus-dropdown--disabled .nexus-dropdown__value,
+.nexus-dropdown--disabled .nexus-dropdown__placeholder,
+.nexus-dropdown__trigger:disabled .nexus-dropdown__value,
+.nexus-dropdown__trigger:disabled .nexus-dropdown__placeholder {
+  color: rgba(226, 232, 240, 0.84);
+}
+
+.nexus-dropdown--disabled .nexus-dropdown__chevron,
+.nexus-dropdown__trigger:disabled .nexus-dropdown__chevron {
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.nexus-dropdown--open .nexus-dropdown__chevron {
+  transform: rotate(180deg);
+}
+
+.nexus-dropdown__menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: grid;
+  gap: 0.2rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  border-radius: 1rem;
+  border: 1px solid rgba(51, 65, 85, 0.94);
+  background:
+    linear-gradient(180deg, rgba(8, 15, 27, 0.98), rgba(4, 10, 20, 0.98)),
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.05), transparent 24%);
+  padding: 0.35rem;
+  box-shadow: 0 18px 40px rgba(2, 8, 23, 0.42);
+}
+
+.nexus-dropdown__option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.8rem;
+  background: transparent;
+  color: #dbe7f5;
+  padding: 0.65rem 0.8rem;
+  text-align: left;
+}
+
+.nexus-dropdown__option:hover:not(:disabled),
+.nexus-dropdown__option--highlighted {
+  border-color: rgba(56, 189, 248, 0.18);
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+}
+
+.nexus-dropdown__option--selected {
+  border-color: rgba(56, 189, 248, 0.26);
+  background: linear-gradient(180deg, rgba(14, 26, 43, 0.94), rgba(12, 22, 37, 0.96));
+  color: #d8f4ff;
+}
+
+.nexus-dropdown__option--disabled {
+  cursor: default;
+  color: rgba(148, 163, 184, 0.68);
+}
+
+input[type="checkbox"] {
+  accent-color: #38bdf8;
+}
+
+.nexus-dropdown__check {
+  color: rgba(103, 232, 249, 0.92);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.nexus-context-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 180px;
+  display: grid;
+  gap: 0.25rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(51, 65, 85, 0.94);
+  background:
+    linear-gradient(180deg, rgba(8, 15, 27, 0.98), rgba(4, 10, 20, 0.98)),
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.05), transparent 24%);
+  padding: 0.35rem;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.04),
+    0 18px 40px rgba(2, 8, 23, 0.42);
+}
+
+.nexus-send-button {
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(59, 130, 246, 0.24));
+  border-color: rgba(56, 189, 248, 0.35);
+  box-shadow: 0 10px 28px rgba(8, 145, 178, 0.16);
+}
+
+.nexus-send-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(8, 145, 178, 0.24);
+}
+
+.nexus-message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.nexus-message-actions__button {
+  min-height: 1.8rem;
+  padding-inline: 0.6rem;
+  background: rgba(15, 23, 42, 0.58);
+  border-color: rgba(51, 65, 85, 0.74);
+  color: rgba(203, 213, 225, 0.92);
+}
+
+.nexus-message-row:hover .nexus-message-actions,
+.nexus-message-actions:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.nexus-message-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.45rem 0;
+}
+
+.nexus-message-row--continued {
+  padding-top: 0.08rem;
+}
+
+.nexus-message-row__rail {
+  display: flex;
+  width: 2.25rem;
+  flex: 0 0 2.25rem;
+  justify-content: center;
+  padding-top: 0.15rem;
+}
+
+.nexus-message-row__body {
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: min(100%, 58rem);
+}
+
+.nexus-message-row--user .nexus-message-row__body {
+  margin-left: auto;
+}
+
+.nexus-message-row__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  min-height: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.nexus-message-row__meta--continued {
+  justify-content: flex-end;
+  margin-bottom: 0.22rem;
+}
+
+.nexus-message-row__identity {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.nexus-message-row__author {
+  color: rgba(186, 230, 253, 0.92);
+  font-size: 0.71rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nexus-message-row__time {
+  color: rgba(148, 163, 184, 0.68);
+  font-size: 0.72rem;
+}
+
+.nexus-message-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(51, 65, 85, 0.92);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(9, 14, 25, 0.94));
+  color: #dbeafe;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.05),
+    0 10px 22px rgba(2, 8, 23, 0.18);
+}
+
+.nexus-message-avatar--assistant {
+  border-color: rgba(56, 189, 248, 0.24);
+  color: #d8f4ff;
+}
+
+.nexus-message-avatar--user {
+  border-color: rgba(148, 163, 184, 0.22);
+  color: #f8fafc;
+}
+
+.nexus-message-avatar--system {
+  border-color: rgba(250, 204, 21, 0.22);
+  color: #fef3c7;
+}
+
+.nexus-message-avatar--ghost {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nexus-message-bubble {
+  position: relative;
+  border: 1px solid rgba(51, 65, 85, 0.78);
+  border-radius: 1.28rem;
+  padding: 1rem 1.05rem 1rem;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.05),
+    0 12px 28px rgba(2, 8, 23, 0.14);
+}
+
+.nexus-message-row:hover .nexus-message-bubble {
+  border-color: rgba(56, 189, 248, 0.22);
+}
+
+.nexus-message-bubble--assistant {
+  background:
+    linear-gradient(180deg, rgba(9, 17, 30, 0.96), rgba(7, 14, 26, 0.93)),
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.05), transparent 34%);
+}
+
+.nexus-message-bubble--user {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(13, 20, 35, 0.95)),
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.04), transparent 34%);
+}
+
+.nexus-message-bubble--system {
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.84), rgba(15, 23, 42, 0.84));
+}
+
+.nexus-message-bubble--compact {
+  border-top-left-radius: 0.9rem;
+  border-top-right-radius: 0.9rem;
+}
+
+.nexus-message-bubble--compact-bottom {
+  border-bottom-left-radius: 0.9rem;
+  border-bottom-right-radius: 0.9rem;
+}
+
+.nexus-message-bubble__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.nexus-message-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  background: rgba(245, 158, 11, 0.1);
+  color: #fde68a;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.nexus-message-bubble__details {
+  border-radius: 0.95rem;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.08);
+  padding: 0.65rem 0.8rem;
+  margin-bottom: 0.9rem;
+  color: rgba(254, 243, 199, 0.94);
+  font-size: 0.8rem;
+}
+
+.nexus-message-bubble__details-summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+
+.nexus-message-bubble__details-body {
+  margin-top: 0.55rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.nexus-message-prose {
+  color: #dbe7f5;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  max-width: 46rem;
+}
+
+.nexus-message-prose > *:first-child {
+  margin-top: 0;
+}
+
+.nexus-message-prose > *:last-child {
+  margin-bottom: 0;
+}
+
+.nexus-message-prose p,
+.nexus-message-prose ul,
+.nexus-message-prose ol,
+.nexus-message-prose blockquote,
+.nexus-message-prose pre,
+.nexus-message-prose table {
+  margin: 0.9rem 0;
+}
+
+.nexus-message-prose h1,
+.nexus-message-prose h2,
+.nexus-message-prose h3,
+.nexus-message-prose h4 {
+  color: #f8fafc;
+  line-height: 1.3;
+  margin: 1.1rem 0 0.55rem;
+  font-weight: 700;
+}
+
+.nexus-message-prose__inline-code {
+  border: 1px solid rgba(71, 85, 105, 0.84);
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.9);
+  color: #d8f4ff;
+  padding: 0.17rem 0.44rem;
+  font-size: 0.88em;
+}
+
+.nexus-message-prose__link {
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.nexus-message-prose__link:hover,
+.nexus-message-prose__link:focus-visible {
+  color: #bae6fd;
+}
+
+.nexus-message-prose__list {
+  padding-left: 1.3rem;
+}
+
+.nexus-message-prose__list--unordered {
+  list-style: disc;
+}
+
+.nexus-message-prose__list--ordered {
+  list-style: decimal;
+}
+
+.nexus-message-prose__list li + li {
+  margin-top: 0.35rem;
+}
+
+.nexus-message-prose__blockquote {
+  border-left: 3px solid rgba(56, 189, 248, 0.3);
+  background: rgba(15, 23, 42, 0.44);
+  border-radius: 0 0.9rem 0.9rem 0;
+  padding: 0.75rem 0.95rem;
+  color: #cbd5e1;
+}
+
+.nexus-message-prose__table-wrap {
+  overflow-x: auto;
+}
+
+.nexus-message-prose__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.nexus-message-prose__table th,
+.nexus-message-prose__table td {
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+}
+
+.nexus-message-prose__table th {
+  background: rgba(15, 23, 42, 0.82);
+  color: #e2e8f0;
+}
+
+.nexus-codeblock {
+  overflow: hidden;
+  border: 1px solid rgba(51, 65, 85, 0.9);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgba(6, 12, 22, 0.98), rgba(3, 8, 18, 0.98)),
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.04), transparent 28%);
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.04),
+    0 12px 26px rgba(2, 8, 23, 0.2);
+}
+
+.nexus-codeblock__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.72);
+  background: rgba(15, 23, 42, 0.74);
+}
+
+.nexus-codeblock__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.nexus-codeblock__traffic {
+  display: inline-flex;
+  gap: 0.28rem;
+  flex: 0 0 auto;
+}
+
+.nexus-codeblock__traffic span {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.3);
+}
+
+.nexus-codeblock__traffic span:first-child {
+  background: rgba(248, 113, 113, 0.55);
+}
+
+.nexus-codeblock__traffic span:nth-child(2) {
+  background: rgba(250, 204, 21, 0.55);
+}
+
+.nexus-codeblock__traffic span:nth-child(3) {
+  background: rgba(74, 222, 128, 0.55);
+}
+
+.nexus-codeblock__language {
+  color: rgba(148, 163, 184, 0.86);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nexus-codeblock__pre {
+  margin: 0;
+  padding: 1rem 1rem 1.05rem;
+  overflow-x: auto;
+  color: #dbeafe;
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.nexus-codeblock__copy {
+  flex: 0 0 auto;
+}
+
+.nexus-codeblock__pre code {
+  display: block;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+@media (max-width: 767px) {
+  .nexus-chat-with-canvas {
+    flex-direction: column;
+  }
+
+  .nexus-code-canvas--docked,
+  .nexus-code-canvas--fullscreen {
+    position: fixed;
+    inset: 5rem 0.75rem 0.75rem;
+    width: auto;
+    flex-basis: auto;
+    z-index: 30;
+  }
+
+  .nexus-code-canvas__header,
+  .nexus-code-canvas__identity {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .nexus-code-canvas__header-actions {
+    justify-content: flex-start;
+  }
+
+  .nexus-message-row {
+    gap: 0.7rem;
+  }
+
+  .nexus-message-row__rail {
+    width: 1.9rem;
+    flex-basis: 1.9rem;
+  }
+
+  .nexus-message-avatar {
+    width: 1.65rem;
+    height: 1.65rem;
+    font-size: 0.68rem;
+  }
+
+  .nexus-message-bubble {
+    padding: 0.9rem;
+  }
+
+  .nexus-message-prose {
+    max-width: 100%;
+    font-size: 0.92rem;
+  }
+}
+
+.nexus-inspector .nexus-inspector-card {
+  border-color: rgba(51, 65, 85, 0.9);
+  background: linear-gradient(180deg, rgba(10, 18, 32, 0.96), rgba(7, 13, 24, 0.92));
+}
+
+.nexus-inspector .nexus-kv {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.nexus-inspector .nexus-kv-label {
+  color: rgba(186, 230, 253, 0.72);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.nexus-inspector .nexus-kv-value {
+  color: #e2e8f0;
+}
+
+.nexus-pill {
+  border: 1px solid rgba(51, 65, 85, 0.95);
+  background: rgba(15, 23, 42, 0.82);
+  color: #cbd5e1;
+}

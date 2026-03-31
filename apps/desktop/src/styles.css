@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Win11-ish defaults */
+:root {
+  --panel: 255 255 255;
+  --border: 229 229 229;
+}
+
+* { box-sizing: border-box; }

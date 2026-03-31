@@ -1,0 +1,18 @@
+{
+  "id": "echo_demo",
+  "name": "Echo Demo",
+  "version": "1.0.0",
+  "description": "Example Sol plugin that exposes a low-risk text tool.",
+  "entrypoint": "plugin.py:register",
+  "permissions": [
+    "text"
+  ],
+  "risk_level": "low",
+  "tools": [
+    {
+      "name": "demo.echo_upper",
+      "description": "Upper-case a text string."
+    }
+  ],
+  "enabled_by_default": false
+}

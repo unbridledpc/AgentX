@@ -1,0 +1,17 @@
+[package]
+name = "sol-desktop"
+version = "0.0.1"
+description = "Sol Desktop"
+authors = ["Sol"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

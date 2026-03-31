@@ -1,0 +1,11 @@
+node_modules/
+.vite/
+coverage/
+dist-ssr/
+*.log
+.DS_Store
+Thumbs.db
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

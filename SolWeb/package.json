@@ -1,0 +1,44 @@
+{
+  "name": "solweb",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "npm exec tsc -- -p tsconfig.json --noEmit",
+    "preview": "vite preview"
+  },
+  "files": [
+    "dist",
+    "public",
+    "src",
+    "index.html",
+    "package.json",
+    "postcss.config.js",
+    "tailwind.config.js",
+    "tsconfig.json",
+    "vite.config.ts"
+  ],
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "jsdom": "^29.0.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.11",
+    "vitest": "^4.1.2"
+  }
+}

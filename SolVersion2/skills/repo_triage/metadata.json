@@ -1,0 +1,11 @@
+{
+  "id": "repo_triage",
+  "name": "Repo Triage",
+  "description": "A native Sol workflow skill for safe repository inspection and triage.",
+  "required_plugins": [],
+  "memory_namespace": "repo_triage",
+  "risk_level": "medium",
+  "examples": [
+    "examples/repo-triage.md"
+  ]
+}

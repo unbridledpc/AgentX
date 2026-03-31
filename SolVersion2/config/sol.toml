@@ -1,0 +1,217 @@
+# SolVersion2 single-source configuration (TOML).
+#
+# This config is deliberately strict: it defaults to SUPERVISED mode and blocks risky capabilities.
+# Edit consciously and re-run the CLI.
+#
+# Modes:
+# - "supervised": prompts for confirmation for risky actions.
+# - "unattended": no prompts; stricter hard-limits apply.
+mode = "supervised"
+
+[agent]
+# NOTE: SolVersion2 currently enforces SUPERVISED mode only at runtime. If you set unattended here,
+# the agent will refuse to start (fail-closed). This is intentional until unattended guardrails are finished.
+mode = "supervised"
+max_steps = 3
+refuse_unattended = true
+auto_tools = true
+auto_web_verify = true
+
+[audit]
+# Append-only JSONL audit log for all tool calls.
+# Relative paths are resolved from the SolVersion2 working directory.
+log_path = "logs/sol_audit.jsonl"
+
+[memory]
+enabled = true
+backend = "sqlite_fts"
+db_path = "data/rag.sqlite3"
+events_path = "data/memory_events.jsonl"
+chunk_chars = 1200
+chunk_overlap_chars = 200
+k_default = 8
+
+[paths]
+# All SolVersion2 state lives under this folder.
+data_dir = "data"
+logs_dir = "logs"
+# Optional: configure UI project roots for SelfCheck build probes.
+solweb_dir = "../SolWeb"
+desktop_dir = "../apps/desktop"
+
+[fs]
+# Allowed roots for ANY file reads/writes. Default allows D/E/F drives.
+# Use Windows-style or forward-slash; paths are normalized.
+allowed_roots = ["D:/", "E:/", "F:/"]
+
+# Drive letters that are fully denied (read + write).
+deny_drive_letters = ["C"]
+
+# Hard-block paths containing these substrings (case-insensitive), even if within allowed_roots.
+# This protects system folders and common secret locations.
+denied_substrings = [
+  "windows",
+  "system32",
+  "appdata",
+  ".ssh",
+  ".gnupg"
+]
+
+denied_path_patterns = [
+  '(?i)(^|[\\/])\\.ssh([\\/]|$)',
+  '(?i)(^|[\\/])\\.gnupg([\\/]|$)'
+]
+
+max_read_bytes = 200000
+max_write_bytes = 200000
+
+# Max deletes per request in unattended mode.
+max_delete_count = 10
+
+[exec]
+enabled = true
+timeout_s = 30
+
+# Allowed executable base names (case-insensitive). Example: "python", "git".
+allowed_commands = ["python", "git", "npm", "node"]
+
+# Disallow "shell=True" execution entirely.
+allow_shell = false
+
+# Block executing scripts/binaries by extension in unattended mode.
+deny_extensions = [".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jar"]
+
+[web]
+enabled = true
+# Search provider endpoint allowlist (DDG/SearxNG/Bing). This is NOT the fetch/crawl allowlist.
+# Fetch/crawl targets are governed by [web.policy] below.
+allow_all_hosts = true
+allowed_host_suffixes = ["duckduckgo.com", "api.bing.microsoft.com"]
+block_private_networks = true
+timeout_s = 10
+max_bytes = 400000
+user_agent = "SolVersion2/0.1"
+max_redirects = 5
+max_search_results = 5
+# BEGIN SOL MANAGED WEB POLICY
+[web.policy]
+allow_all_hosts = false
+allowed_suffixes = ["edu", "gov", "wikipedia.org"]
+allowed_domains = ["api.github.com", "github.com", "google.com", "otland.net", "raw.githubusercontent.com", "usa.gov", "whitehouse.gov"]
+denied_domains = []
+# END SOL MANAGED WEB POLICY
+[web.search]
+# Meta-search providers to use in order. Providers must be reachable under the web allowlist:
+# - DuckDuckGo uses "duckduckgo.com"
+# - SearxNG uses your configured base_url host
+# - Bing uses the configured endpoint host (default api.bing.microsoft.com) and requires an API key
+providers = ["searxng", "duckduckgo", "bing"]
+# If one provider fails, still return results from the others.
+provider_fail_open = true
+# Timeout per provider request (seconds).
+timeout_s = 8
+# Results pulled per provider (before merge/dedupe/rank).
+k_per_provider = 8
+# Max results returned after merge/dedupe/rank.
+max_total_results = 20
+
+[web.search.searxng]
+# Optional. Example: "http://127.0.0.1:8080" or "https://searx.example.com"
+base_url = ""
+categories = "general"
+
+[web.github]
+# Optional: GitHub token environment variable name (do NOT put tokens in this file).
+# token_env = "SOL_GITHUB_TOKEN"
+
+[web.search.bing]
+# Optional. Leave empty to disable Bing.
+api_key = ""
+endpoint = "https://api.bing.microsoft.com/v7.0/search"
+# Domain allowlist for web.crawl. If empty, defaults to allowed_host_suffixes.
+allowed_domains = ["en.wikipedia.org", "tibia.fandom.com"]
+crawl_max_pages_default = 50
+crawl_delay_ms_default = 500
+
+[web.ingest]
+# Defaults for `web.ingest_url` when it detects repo/wiki/docs pages.
+# These are applied in addition to any include_patterns/exclude_patterns passed to the tool.
+prefer_docs = true
+max_files = 80
+max_files_repo = 50
+max_depth_repo = 3
+max_dirs_repo = 200
+# Repo-path allowlist for GitHub repo ingestion. Empty means "allow all text-like files"
+# (filtered by `exclude_globs`, fetch size limits, and binary heuristics).
+include_globs = []
+exclude_globs = [
+  "**/.git/**",
+  "**/node_modules/**",
+  "**/vendor/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/*.min.*",
+  "**/*.map",
+  "**/*.png",
+  "**/*.jpg",
+  "**/*.jpeg",
+  "**/*.gif",
+  "**/*.svg",
+  "**/*.pdf",
+]
+
+[tibia.sources]
+# Optional: safe, bounded forum research helpers for Tibia/TFS (otland.net / tibiaking.com).
+# These tools are still web.policy-gated and robots-aware; they will not brute-force crawl forums.
+enabled = true
+default_delay_ms = 500
+max_threads = 5
+max_pages_per_thread = 5
+
+[tibia.sources.domains]
+otland = "otland.net"
+tibiaking = "tibiaking.com"
+
+[tibia.sources.domain_enabled]
+otland = true
+tibiaking = true
+
+[rag]
+enabled = true
+db_path = "data/rag.sqlite3"
+top_k = 5
+chunk_chars = 1200
+chunk_overlap_chars = 200
+
+[voice]
+enabled = false
+wake_word_enabled = false
+wake_word = "sol"
+mic_device = ""
+
+[vision]
+enabled = false
+device_index = 0
+
+[llm]
+# Provider used by `python -m sol run`.
+# - "ollama": local models via http://127.0.0.1:11434
+# - "openai": cloud models via OpenAI API
+# - "stub": no model; echoes input
+provider = "ollama"
+
+[llm.openai]
+# Prefer using an environment variable rather than storing keys in a file.
+api_key_env = "SOL_OPENAI_API_KEY"
+base_url = "https://api.openai.com"
+model = "gpt-4o-mini"
+timeout_s = 20
+max_tool_iters = 4
+
+[llm.ollama]
+base_url = "http://127.0.0.1:11434"
+model = "llama3.2"
+timeout_s = 30
+max_tool_iters = 4
+
+

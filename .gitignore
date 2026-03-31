@@ -1,0 +1,96 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build artifacts
+dist/
+build/
+target/
+out/
+coverage/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Runtime data and caches
+tmp/
+temp/
+.cache/
+rars/
+tmp_cli_run_check/
+export SOL_BOOTSTRAP_APP_ROOT=*/
+Changes/
+
+# Sol runtime state
+apps/api/sol_api/data/
+apps/api/.venv/
+SolVersion2/data/
+SolVersion2/logs/
+SolVersion2/build/
+SolVersion2/Server/data/features/autonomy_platform/logs/
+SolVersion2/solversion2.egg-info/
+SolVersion2/.pytest_cache/
+SolVersion2/**/__pycache__/
+SolVersion2/**/unsafe.log
+apps/desktop/dist/
+apps/desktop/node_modules/
+SolWeb/dist/
+SolWeb/node_modules/
+
+# Local config and secrets
+.env
+.env.*
+*.local
+*.override
+*.secret
+*.secrets
+settings.json
+install.json
+unsafe.log
+sol_audit.jsonl
+memory_events.jsonl
+rag.sqlite3
+
+# Local notes / generated workspace artifacts
+ProCon.md
+Sol-Log.md
+*.db
+*.sqlite
+*.sqlite3
