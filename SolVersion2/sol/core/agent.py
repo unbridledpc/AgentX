@@ -722,9 +722,12 @@ class Agent:
             query = assessment.repo_query or self._extract_repo_query(t)
             if not query:
                 return False, "Target symbol or behavior for repo inspection could not be determined."
-            tool = self.tools.get_tool("fs.grep")
-            if not tool:
+            grep_tool = self.tools.get_tool("fs.grep")
+            if not grep_tool:
                 return False, "fs.grep tool is not available."
+            read_tool = self.tools.get_tool("fs.read_text")
+            if not read_tool:
+                return False, "fs.read_text tool is not available."
             try:
                 repo_root = str(getattr(self.ctx.cfg.paths, "app_root", self.ctx.cfg.paths.working_dir))
                 _tool, validated = self.tools.prepare_for_execution(
@@ -1378,11 +1381,208 @@ class Agent:
             )
         return answer.strip(), verification_level, verification
 
+    def _repo_inspection_read_limit(self) -> int:
+        return 3
+
+    def _repo_query_terms(self, query: str) -> list[str]:
+        raw = (query or "").strip().lower()
+        if not raw:
+            return []
+        parts = [tok for tok in re.split(r"[^a-z0-9_]+", raw) if tok]
+        expanded: list[str] = []
+        for part in parts:
+            if part.startswith("fs.") and len(part) > 3:
+                expanded.append(part[3:])
+            expanded.append(part)
+        seen: set[str] = set()
+        out: list[str] = []
+        for part in expanded:
+            if not part or part in seen:
+                continue
+            seen.add(part)
+            out.append(part)
+        return out
+
+    def _rank_repo_hit_paths(self, query: str, hits: list[dict[str, Any]]) -> list[str]:
+        terms = self._repo_query_terms(query)
+        query_low = (query or "").strip().lower()
+        scored: list[tuple[int, int, str]] = []
+        seen: set[str] = set()
+        for idx, hit in enumerate(hits):
+            if not isinstance(hit, dict):
+                continue
+            path_s = str(hit.get("path") or "").strip()
+            if not path_s or path_s in seen:
+                continue
+            seen.add(path_s)
+            path_low = path_s.lower()
+            name_low = Path(path_s).name.lower()
+            stem_low = Path(path_s).stem.lower()
+            score = 2
+            if query_low and (name_low == query_low or stem_low == query_low):
+                score = 0
+            elif any(term and (name_low == term or stem_low == term) for term in terms):
+                score = 0
+            elif any(term and term in name_low for term in terms):
+                score = 1
+            elif query_low and query_low in path_low:
+                score = 1
+            scored.append((score, idx, path_s))
+        scored.sort(key=lambda item: (item[0], item[1], item[2]))
+        return [path for (_score, _idx, path) in scored]
+
+    def _repo_inspection_paths_from_results(self, *, query: str, prior_results: list[ToolResult]) -> list[str]:
+        for r in reversed(prior_results):
+            if r.tool != "fs.grep" or not r.ok:
+                continue
+            payload = r.result if r.result is not None else r.output
+            if not isinstance(payload, dict):
+                continue
+            hits = payload.get("hits")
+            if not isinstance(hits, list):
+                continue
+            ranked = self._rank_repo_hit_paths(query or str(payload.get("query") or ""), hits)
+            if ranked:
+                return ranked[: self._repo_inspection_read_limit()]
+        return []
+
+    def _repo_inspection_plan_query(self, plan: Plan) -> str | None:
+        for step in plan.steps:
+            metadata = step.metadata if isinstance(step.metadata, dict) else {}
+            query = str(metadata.get("repo_query") or "").strip()
+            if query:
+                return query
+            if self._normalize_tool_name(step.tool_name) == "fs.grep":
+                query = str(step.arguments.get("query") or "").strip()
+                if query:
+                    return query
+        return None
+
+    def _repo_inspection_snippet(self, *, path: str, content: str, hit_lines: list[int], query: str) -> tuple[str, str | None]:
+        lines = content.splitlines()
+        if not lines:
+            return "<empty file>", None
+        chosen_line = None
+        for ln in hit_lines:
+            if isinstance(ln, int) and 1 <= ln <= len(lines):
+                chosen_line = ln
+                break
+        if chosen_line is None:
+            query_terms = self._repo_query_terms(query)
+            low_lines = [ln.lower() for ln in lines]
+            for idx, line_low in enumerate(low_lines, start=1):
+                if any(term and term in line_low for term in query_terms):
+                    chosen_line = idx
+                    break
+        if chosen_line is None:
+            chosen_line = 1
+        start = max(1, chosen_line - 2)
+        end = min(len(lines), chosen_line + 2)
+        context_name: str | None = None
+        for idx in range(chosen_line - 1, max(0, chosen_line - 12) - 1, -1):
+            stripped = lines[idx].strip()
+            if stripped.startswith("def ") or stripped.startswith("class "):
+                context_name = stripped
+                break
+        snippet = "\n".join(f"{line_no}: {lines[line_no - 1]}" for line_no in range(start, end + 1))
+        return snippet.strip() or "<empty file>", context_name
+
+    def _format_repo_inspection_analysis(self, *, plan: Plan, results: list[ToolResult]) -> str | None:
+        query = self._repo_inspection_plan_query(plan)
+        if not query:
+            return None
+
+        grep_payload: dict[str, Any] | None = None
+        for r in results:
+            if r.tool == "fs.grep" and r.ok:
+                payload = r.result if r.result is not None else r.output
+                if isinstance(payload, dict):
+                    grep_payload = payload
+                    break
+        if not grep_payload:
+            return None
+
+        hits = grep_payload.get("hits")
+        if not isinstance(hits, list) or not hits:
+            return None
+
+        hit_lines_by_path: dict[str, list[int]] = {}
+        for hit in hits:
+            if not isinstance(hit, dict):
+                continue
+            path_s = str(hit.get("path") or "").strip()
+            if not path_s:
+                continue
+            line = hit.get("line")
+            if isinstance(line, int):
+                hit_lines_by_path.setdefault(path_s, []).append(line)
+            else:
+                hit_lines_by_path.setdefault(path_s, [])
+
+        ranked_paths = self._rank_repo_hit_paths(query, hits)
+        read_by_path: dict[str, ToolResult] = {}
+        for r in results:
+            if r.tool != "fs.read_text" or not r.ok:
+                continue
+            payload = r.result if r.result is not None else r.output
+            if not isinstance(payload, dict):
+                continue
+            path_s = str(payload.get("path") or r.args.get("path") or "").strip()
+            if path_s:
+                read_by_path[path_s] = r
+
+        selected_paths = [path for path in ranked_paths if path in read_by_path]
+        if not selected_paths:
+            return "Grounded repo analysis was not generated because no matching files were successfully read."
+
+        lines: list[str] = []
+        lines.append("Grounded repo analysis:")
+        lines.append(f"Query: {query}")
+        for path_s in selected_paths[: self._repo_inspection_read_limit()]:
+            read_result = read_by_path[path_s]
+            payload = read_result.result if read_result.result is not None else read_result.output
+            if not isinstance(payload, dict):
+                continue
+            content = str(payload.get("content") or "")
+            snippet, context_name = self._repo_inspection_snippet(
+                path=path_s,
+                content=content,
+                hit_lines=hit_lines_by_path.get(path_s, []),
+                query=query,
+            )
+            lines.append(f"File: {path_s}")
+            if context_name:
+                lines.append(f"Context: {context_name}")
+            lines.append("Relevant code:")
+            lines.append(snippet)
+            lines.append("")
+        return "\n".join(lines).strip()
+
     def _resolve_placeholders(self, tool_name: str, args: dict[str, Any], *, prior_results: list[ToolResult]) -> tuple[dict[str, Any], str | None, str | None]:
         if not isinstance(args, dict):
             return {}, None, None
 
         canonical = self._normalize_tool_name(tool_name)
+        if canonical == "fs.read_text":
+            out = dict(args)
+            raw_path = out.get("path")
+            if isinstance(raw_path, str):
+                value = raw_path.strip()
+                if value.startswith("$grep:ranked_path:"):
+                    parts = value.split(":")
+                    try:
+                        idx = int(parts[2])
+                    except Exception:
+                        return out, "error", f"Invalid grep placeholder: {value}"
+                    query = ""
+                    if len(parts) > 3:
+                        query = ":".join(parts[3:]).strip()
+                    ranked = self._repo_inspection_paths_from_results(query=query, prior_results=prior_results)
+                    if idx < 0 or idx >= len(ranked):
+                        return out, "skipped", f"No ranked repo match available for placeholder {value}"
+                    out["path"] = ranked[idx]
+            return out, None, None
+
         if canonical not in ("web.fetch", "web.crawl"):
             return dict(args), None, None
 
@@ -2371,6 +2571,9 @@ class Agent:
                 # Planned but not executed (because a previous step failed).
                 lines.append(f"{i}. {step.tool_name}: NOT EXECUTED")
                 lines.append("")
+        repo_analysis = self._format_repo_inspection_analysis(plan=plan, results=results)
+        if repo_analysis:
+            lines.append(repo_analysis)
         return "\n".join(lines).strip()
 
     def _plan_from_tool_commands(self, text: str) -> list[PlanStep]:
@@ -2685,8 +2888,18 @@ class Agent:
                         tool_name=self._normalize_tool_name("fs.grep"),
                         arguments=self._normalize_tool_args("fs.grep", {"query": query, "path": repo_root, "glob": "*.py", "max_hits": 25}),
                         reason=f"User requested repo inspection for {query}.",
+                        metadata={"phase": "search", "intent": "repo_inspect", "repo_query": query},
                     )
                 )
+                for idx in range(self._repo_inspection_read_limit()):
+                    out.append(
+                        PlanStep(
+                            tool_name=self._normalize_tool_name("fs.read_text"),
+                            arguments=self._normalize_tool_args("fs.read_text", {"path": f"$grep:ranked_path:{idx}:{query}"}),
+                            reason=f"Read ranked repo match {idx + 1} for grounded inspection of {query}.",
+                            metadata={"phase": "read", "intent": "repo_inspect", "repo_query": query, "rank_index": idx},
+                        )
+                    )
                 continue
             if kind == "ingest_url":
                 url = self._extract_url(s)
@@ -2974,7 +3187,9 @@ class Agent:
                     out.pop(k, None)
 
         if canonical in {"fs.list", "fs.read_text", "fs.write_text", "fs.grep"} and isinstance(out.get("path"), str):
-            out["path"] = self._resolve_fs_path(out["path"])
+            raw_path = str(out["path"]).strip()
+            if not raw_path.startswith("$grep:"):
+                out["path"] = self._resolve_fs_path(raw_path)
         elif canonical == "fs.move":
             if isinstance(out.get("src"), str):
                 out["src"] = self._resolve_fs_path(out["src"])
@@ -3083,6 +3298,19 @@ class Agent:
             return False
         if self._extract_path(text) or self._extract_url(text):
             return False
+        implementation_probe = any(
+            phrase in low
+            for phrase in (
+                "where is ",
+                "implemented",
+                "how does ",
+                "what handles ",
+                "which files ",
+                "show me how ",
+            )
+        )
+        if implementation_probe and bool(self._extract_repo_query(text)):
+            return True
         repo_words = any(token in low for token in ("repo", "repository", "codebase", "project", "planner", "orchestrator", "fallback", "tool execution"))
         inspect_words = any(
             phrase in low
@@ -3513,7 +3741,7 @@ class Agent:
                     check_one(p)
 
     def _plan_to_dict(self, plan: Plan) -> dict[str, Any]:
-        return {"steps": [{"tool": s.tool_name, "args": s.arguments, "reason": s.reason} for s in plan.steps]}
+        return {"steps": [{"tool": s.tool_name, "args": s.arguments, "reason": s.reason, "metadata": dict(s.metadata or {})} for s in plan.steps]}
 
     def _tool_results_to_dict(self, results: tuple[ToolResult, ...]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

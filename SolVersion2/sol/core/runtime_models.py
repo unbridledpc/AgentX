@@ -12,6 +12,7 @@ class PlanStep:
     tool_name: str
     arguments: dict[str, Any]
     reason: str
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

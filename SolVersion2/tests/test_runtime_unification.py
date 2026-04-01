@@ -287,6 +287,22 @@ def test_chat_read_uses_structured_tool_result_and_blocks_fake_fallback(tmp_path
     assert "hello" in result.text
 
 
+def test_chat_package_json_question_uses_file_read_tool(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+    target = work_dir / "package.json"
+    target.write_text('{"name":"demo"}', encoding="utf-8")
+
+    result = agent.chat(user_message="what is in package.json?", provider="stub", model="stub", thread_id="thread-1")
+
+    assert result.ok is True
+    assert result.tool_results
+    tool_result = result.tool_results[0]
+    assert tool_result.tool == "fs.read_text"
+    assert tool_result.args["path"] == str(target)
+    assert tool_result.result["content"] == '{"name":"demo"}'
+    assert "fs.read_text: OK" in result.text
+
+
 def test_chat_missing_read_target_returns_grounded_failure_without_llm_guess(tmp_path: Path, monkeypatch) -> None:
     agent, _work_dir = _prepare_fs_write_agent(tmp_path)
     monkeypatch.setattr(agent, "_run_llm_chat_audited", lambda **_: "Invented answer")
@@ -297,6 +313,21 @@ def test_chat_missing_read_target_returns_grounded_failure_without_llm_guess(tmp
     assert result.tool_results == tuple()
     assert "could not be determined" in result.text.lower() or "missing required arguments" in result.text.lower()
     assert "Invented answer" not in result.text
+
+
+def test_chat_missing_file_read_returns_structured_not_found(tmp_path: Path) -> None:
+    agent, _work_dir = _prepare_fs_write_agent(tmp_path)
+
+    result = agent.chat(user_message="read missing.txt", provider="stub", model="stub", thread_id="thread-1")
+
+    assert result.ok is False
+    assert result.tool_results
+    tool_result = result.tool_results[0]
+    assert tool_result.tool == "fs.read_text"
+    assert tool_result.error_info is not None
+    assert tool_result.error_info.code == "not_found"
+    assert "File not found." in result.text
+    assert "fs.read_text: FAILED" in result.text
 
 
 def test_execute_delete_failure_returns_structured_error(tmp_path: Path) -> None:
@@ -317,24 +348,43 @@ def test_execute_delete_failure_returns_structured_error(tmp_path: Path) -> None
     assert "deleted" not in result.text.lower()
 
 
-def test_chat_repo_lookup_uses_repo_search_tool(tmp_path: Path) -> None:
+def test_chat_repo_lookup_reads_ranked_files_and_explains_from_code(tmp_path: Path) -> None:
     agent, _work_dir = _prepare_fs_write_agent(tmp_path)
-    repo_file = tmp_path / "planner_runtime.py"
-    repo_file.write_text("DELETE_TOOL = 'fs.delete'\n", encoding="utf-8")
+    primary_repo_file = tmp_path / "delete_runtime.py"
+    primary_repo_file.write_text(
+        'DELETE_TOOL = "fs.delete"\n\n'
+        "def perform_delete(target: str) -> dict[str, str]:\n"
+        '    return {"tool": DELETE_TOOL, "target": target}\n',
+        encoding="utf-8",
+    )
+    secondary_repo_file = tmp_path / "planner_runtime.py"
+    secondary_repo_file.write_text(
+        "def explain_delete() -> str:\n"
+        '    return "fs.delete is delegated through perform_delete"\n',
+        encoding="utf-8",
+    )
 
     result = agent.chat(
-        user_message="Inspect the repo and tell me where delete is implemented",
+        user_message="where is delete implemented and how does it work",
         provider="stub",
         model="stub",
         thread_id="thread-1",
     )
 
     assert result.ok is True
-    assert result.tool_results
-    tool_result = result.tool_results[0]
-    assert tool_result.tool == "fs.grep"
-    assert tool_result.args["query"] == "fs.delete"
-    hits = tool_result.result["hits"]
+    assert len(result.tool_results) >= 2
+    grep_result = result.tool_results[0]
+    assert grep_result.tool == "fs.grep"
+    assert grep_result.args["query"] == "fs.delete"
+    hits = grep_result.result["hits"]
     assert isinstance(hits, list) and hits
-    assert hits[0]["path"] == str(repo_file)
+    hit_paths = {hit["path"] for hit in hits}
+    assert str(primary_repo_file) in hit_paths
+    assert str(secondary_repo_file) in hit_paths
+    read_results = [tool_result for tool_result in result.tool_results if tool_result.tool == "fs.read_text" and tool_result.ok]
+    assert read_results
+    assert read_results[0].args["path"] == str(primary_repo_file)
     assert "Repo search:" in result.text
+    assert "Grounded repo analysis:" in result.text
+    assert 'DELETE_TOOL = "fs.delete"' in result.text
+    assert "def perform_delete(target: str)" in result.text

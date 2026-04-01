@@ -264,6 +264,13 @@ def test_chat_live_route_reads_files_via_tools_and_supports_followups(monkeypatc
     assert posix_read.status_code == 200, posix_read.text
     assert "fs.read_text: OK" in posix_read.json()["content"]
     assert "hello" in posix_read.json()["content"]
+
+    package_file = work_dir / "package.json"
+    package_file.write_text('{"name":"demo"}', encoding="utf-8")
+    package_read = client.post("/v1/chat", json={"message": "what is in package.json?", "thread_id": None})
+    assert package_read.status_code == 200, package_read.text
+    assert "fs.read_text: OK" in package_read.json()["content"]
+    assert '{"name":"demo"}' in package_read.json()["content"]
     assert not (work_dir / "named").exists()
     assert not (work_dir / "at").exists()
 
@@ -351,7 +358,7 @@ def test_chat_live_route_clarifies_when_read_target_is_unknown_and_does_not_hall
     assert "Sol says:" not in payload["content"]
 
 
-def test_chat_live_route_repo_inspection_defaults_to_repo_search(monkeypatch, tmp_path) -> None:
+def test_chat_live_route_missing_file_read_returns_grounded_not_found(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(config, "auth_enabled", False)
     monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
     threads_dir = tmp_path / "threads"
@@ -363,8 +370,6 @@ def test_chat_live_route_repo_inspection_defaults_to_repo_search(monkeypatch, tm
     session_tracker.reset_for_tests()
 
     agent, _work_dir = _build_live_agent(tmp_path)
-    repo_file = tmp_path / "planner_runtime.py"
-    repo_file.write_text("DELETE_TOOL = 'fs.delete'\n", encoding="utf-8")
 
     class _FakeAudit:
         def tail(self, limit: int = 50):
@@ -378,11 +383,62 @@ def test_chat_live_route_repo_inspection_defaults_to_repo_search(monkeypatch, tm
     monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
 
     client = TestClient(create_app())
-    response = client.post("/v1/chat", json={"message": "Inspect the repo and tell me where delete is implemented", "thread_id": None})
+    response = client.post("/v1/chat", json={"message": "read missing.txt", "thread_id": None})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "fs.read_text: FAILED" in payload["content"]
+    assert "File not found." in payload["content"]
+    assert "Sol says:" not in payload["content"]
+
+
+def test_chat_live_route_repo_inspection_reads_ranked_files_and_explains(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, _work_dir = _build_live_agent(tmp_path)
+    primary_repo_file = tmp_path / "delete_runtime.py"
+    primary_repo_file.write_text(
+        'DELETE_TOOL = "fs.delete"\n\n'
+        "def perform_delete(target: str) -> dict[str, str]:\n"
+        '    return {"tool": DELETE_TOOL, "target": target}\n',
+        encoding="utf-8",
+    )
+    secondary_repo_file = tmp_path / "planner_runtime.py"
+    secondary_repo_file.write_text(
+        "def explain_delete() -> str:\n"
+        '    return "fs.delete is delegated through perform_delete"\n',
+        encoding="utf-8",
+    )
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+    response = client.post("/v1/chat", json={"message": "where is delete implemented and how does it work", "thread_id": None})
     assert response.status_code == 200, response.text
     payload = response.json()
     assert "fs.grep: OK" in payload["content"]
-    assert str(repo_file) in payload["content"]
+    assert "fs.read_text: OK" in payload["content"]
+    assert str(primary_repo_file) in payload["content"]
+    assert str(secondary_repo_file) in payload["content"]
+    assert "Grounded repo analysis:" in payload["content"]
+    assert 'DELETE_TOOL = "fs.delete"' in payload["content"]
+    assert "def perform_delete(target: str)" in payload["content"]
     assert "Sol says:" not in payload["content"]
 
 
