@@ -70,6 +70,13 @@ class RuntimeOrchestrator:
                 if working_memory is not None:
                     working_memory.note_unresolved(msg)
                 return AgentResult(ok=False, plan=Plan(steps=tuple()), text=finalize_response_text(msg, response_mode=response_mode), tool_results=tuple(), retrieved=tuple(retrieved), context=context, sources=tuple(), verification_level=VerificationLevel.UNVERIFIED, verification=None)
+            elif continuation.get("kind") == "meta_help":
+                msg = str(continuation["message"])
+                self.agent._set_pending_action(pending)
+                self.agent._memory_add_event(role="assistant", content=msg, tags=["trusted:assistant"], meta={"thread_id": thread_id, "pending_action_help": True})
+                if working_memory is not None:
+                    working_memory.note_unresolved(msg)
+                return AgentResult(ok=False, plan=Plan(steps=tuple()), text=finalize_response_text(msg, response_mode=response_mode), tool_results=tuple(), retrieved=tuple(retrieved), context=context, sources=tuple(), verification_level=VerificationLevel.UNVERIFIED, verification=None)
             elif continuation.get("kind") == "discard" or self.agent._should_discard_pending_action(user_text, pending=pending):
                 self.agent._clear_pending_action()
                 pending = None

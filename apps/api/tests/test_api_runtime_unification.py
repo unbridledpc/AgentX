@@ -695,6 +695,248 @@ def test_chat_live_route_pending_python_file_guides_then_executes(monkeypatch, t
     assert wm.for_scope(user_id="tester", thread_id="thread-1").pending_action is None
 
 
+def test_chat_live_route_write_to_notes_clarifies_filename(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, work_dir = _build_live_agent(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+    response = client.post("/v1/chat", json={"message": "write to notes", "thread_id": None})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["content"] == "What filename should I write to?"
+    assert not (work_dir / "notes").exists()
+
+
+def test_chat_live_route_write_meeting_notes_stays_discuss(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, work_dir = _build_live_agent(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+    response = client.post("/v1/chat", json={"message": "write meeting notes", "thread_id": None})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "write meeting notes" in payload["content"].lower()
+    assert not (work_dir / "meeting").exists()
+
+
+def test_chat_live_route_write_to_notes_txt_asks_for_content(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    agent, work_dir = _build_live_agent(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), agent))
+
+    client = TestClient(create_app())
+    response = client.post("/v1/chat", json={"message": "write to notes.txt", "thread_id": None})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["content"] == "What content should I write to the file?"
+    assert not (work_dir / "notes.txt").exists()
+
+
+def test_chat_live_route_pending_content_help_does_not_write(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    make_agent, work_dir, _wm = _build_live_agent_factory(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), make_agent()))
+
+    client = TestClient(create_app())
+    first = client.post("/v1/chat", json={"message": "write to notes.txt", "thread_id": None})
+    assert first.status_code == 200, first.text
+    assert first.json()["content"] == "What content should I write to the file?"
+
+    second = client.post("/v1/chat", json={"message": "help", "thread_id": None})
+    assert second.status_code == 200, second.text
+    payload = second.json()
+    assert "exact text" in payload["content"].lower()
+    assert "notes.txt" in payload["content"]
+    assert not (work_dir / "notes.txt").exists()
+
+
+def test_chat_live_route_pending_content_example_does_not_write(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    make_agent, work_dir, _wm = _build_live_agent_factory(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), make_agent()))
+
+    client = TestClient(create_app())
+    first = client.post("/v1/chat", json={"message": "write to notes.txt", "thread_id": None})
+    assert first.status_code == 200, first.text
+    assert first.json()["content"] == "What content should I write to the file?"
+
+    second = client.post("/v1/chat", json={"message": "show me an example", "thread_id": None})
+    assert second.status_code == 200, second.text
+    payload = second.json()
+    assert "for example" in payload["content"].lower()
+    assert "hello world" in payload["content"].lower()
+    assert not (work_dir / "notes.txt").exists()
+
+
+def test_chat_live_route_pending_content_literal_reply_writes(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    make_agent, work_dir, _wm = _build_live_agent_factory(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), make_agent()))
+
+    client = TestClient(create_app())
+    first = client.post("/v1/chat", json={"message": "write to notes.txt", "thread_id": None})
+    assert first.status_code == 200, first.text
+    assert first.json()["content"] == "What content should I write to the file?"
+
+    second = client.post("/v1/chat", json={"message": "hello world", "thread_id": None})
+    assert second.status_code == 200, second.text
+    payload = second.json()
+    assert "fs.write_text: OK" in payload["content"]
+    assert (work_dir / "notes.txt").read_text(encoding="utf-8") == "hello world"
+
+
+def test_chat_live_route_pending_content_cancel_clears(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(config, "auth_enabled", False)
+    monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")
+    threads_dir = tmp_path / "threads"
+    threads_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config, "threads_dir", threads_dir)
+    with settings_route._CACHE_LOCK:
+        settings_route._CACHED_SETTINGS = None
+    session_store.reset_for_tests()
+    session_tracker.reset_for_tests()
+
+    make_agent, work_dir, _wm = _build_live_agent_factory(tmp_path)
+
+    class _FakeAudit:
+        def tail(self, limit: int = 50):
+            return []
+
+    class _FakeHandle:
+        class ctx:
+            audit = _FakeAudit()
+
+    monkeypatch.setattr("sol_api.routes.chat._read_settings", lambda: SettingsModel(chatProvider="stub", chatModel="stub"))
+    monkeypatch.setattr("sol_api.routes.chat._get_agent_pair", lambda thread_id, user="unknown": (_FakeHandle(), make_agent()))
+
+    client = TestClient(create_app())
+    first = client.post("/v1/chat", json={"message": "write to notes.txt", "thread_id": None})
+    assert first.status_code == 200, first.text
+    assert first.json()["content"] == "What content should I write to the file?"
+
+    second = client.post("/v1/chat", json={"message": "cancel that", "thread_id": None})
+    assert second.status_code == 200, second.text
+    payload = second.json()
+    assert payload["content"] == "Okay, I canceled that pending action."
+    assert not (work_dir / "notes.txt").exists()
+
+
 def test_chat_live_route_explain_this_code_uses_artifact_context(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(config, "auth_enabled", False)
     monkeypatch.setattr(config, "settings_path", tmp_path / "settings.json")

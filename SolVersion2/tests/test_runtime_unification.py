@@ -364,6 +364,155 @@ def test_pending_python_file_write_guides_filename_then_content(tmp_path: Path) 
     assert agent._pending_action() is None
 
 
+def test_ambiguous_write_to_notes_requests_filename_clarification(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    result = agent.chat(
+        user_message="write to notes",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert result.ok is False
+    assert result.text == "What filename should I write to?"
+    assert agent._pending_action() is not None
+    assert not any(work_dir.iterdir())
+
+
+def test_write_meeting_notes_stays_in_discuss_mode(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    result = agent.chat(
+        user_message="write meeting notes",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert result.ok is True
+    assert result.tool_results == tuple()
+    assert "write meeting notes" in result.text.lower()
+    assert not any(work_dir.iterdir())
+
+
+def test_write_to_notes_txt_uses_file_write_path(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    result = agent.chat(
+        user_message="write to notes.txt",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert result.ok is False
+    assert result.text == "What content should I write to the file?"
+    pending = agent._pending_action()
+    assert pending is not None
+    assert pending.known_args["path"].endswith("notes.txt")
+    assert not (work_dir / "notes.txt").exists()
+
+
+def test_pending_content_help_does_not_write_file(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    first = agent.chat(
+        user_message="write to notes.txt",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+    assert first.text == "What content should I write to the file?"
+
+    second = agent.chat(
+        user_message="help",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert second.ok is False
+    assert "exact text" in second.text.lower()
+    assert "notes.txt" in second.text
+    assert agent._pending_action() is not None
+    assert not (work_dir / "notes.txt").exists()
+
+
+def test_pending_content_example_request_does_not_write_file(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    first = agent.chat(
+        user_message="write to notes.txt",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+    assert first.text == "What content should I write to the file?"
+
+    second = agent.chat(
+        user_message="show me an example",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert second.ok is False
+    assert "for example" in second.text.lower()
+    assert "hello world" in second.text.lower()
+    assert agent._pending_action() is not None
+    assert not (work_dir / "notes.txt").exists()
+
+
+def test_pending_content_literal_reply_writes_file(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    first = agent.chat(
+        user_message="write to notes.txt",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+    assert first.text == "What content should I write to the file?"
+
+    second = agent.chat(
+        user_message="hello world",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    target = work_dir / "notes.txt"
+    assert second.ok is True
+    assert target.exists()
+    assert target.read_text(encoding="utf-8") == "hello world"
+    assert agent._pending_action() is None
+
+
+def test_pending_content_cancel_clears_without_write(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    first = agent.chat(
+        user_message="write to notes.txt",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+    assert first.text == "What content should I write to the file?"
+
+    second = agent.chat(
+        user_message="cancel that",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert second.ok is True
+    assert second.text == "Okay, I canceled that pending action."
+    assert agent._pending_action() is None
+    assert not (work_dir / "notes.txt").exists()
+
+
 def test_chat_edit_replaces_existing_file_contents(tmp_path: Path) -> None:
     agent, work_dir = _prepare_fs_write_agent(tmp_path)
     target = work_dir / "demo.txt"

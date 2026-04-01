@@ -721,6 +721,9 @@ class Agent:
         if self._is_python_file_request(user_text):
             hints["expected_extension"] = ".py"
             hints["file_label"] = "Python file"
+        ambiguous_target = self._extract_ambiguous_write_target(user_text)
+        if ambiguous_target:
+            hints["suggested_stem"] = ambiguous_target
         filled = tuple(name for name in ("path", "content") if name in known_args)
         if not known_args and not hints:
             return None
@@ -833,6 +836,37 @@ class Agent:
                 return "What content should I write to the file?"
         return str(getattr(pending, "clarification_prompt", "") or "I still need the missing information to continue.")
 
+    def _pending_content_meta_reply_kind(self, text: str) -> str | None:
+        low = (text or "").strip().lower()
+        if not low:
+            return None
+        if low in {
+            "help",
+            "what do you mean",
+            "i'm not sure",
+            "im not sure",
+            "can you suggest something",
+            "show me an example",
+            "explain",
+        }:
+            return "help"
+        if "example" in low or "suggest" in low:
+            return "example"
+        return None
+
+    def _pending_content_meta_reply_message(self, pending: PendingAction, *, kind: str) -> str:
+        path = str((getattr(pending, "known_args", {}) or {}).get("path") or "").strip()
+        target = Path(path).name if path else "the file"
+        if kind == "example":
+            return (
+                f"Reply with the exact text you want me to write into {target}.\n"
+                f"For example: `hello world` or `print(\"hello\")`."
+            )
+        return (
+            f"Tell me the exact text you want written into {target}.\n"
+            f"For example: `hello world`, `This is my note.`, or `print(\"hello\")`."
+        )
+
     def _coerce_pending_write_path(self, text: str, *, pending: PendingAction) -> str | None:
         raw = (text or "").strip().strip("\"'`").rstrip(".,;!?")
         if not raw:
@@ -865,6 +899,9 @@ class Agent:
             elif self._should_discard_pending_action(text, pending=pending):
                 return {"kind": "discard"}
         elif next_arg in {"file content", "replacement content"}:
+            meta_kind = self._pending_content_meta_reply_kind(text)
+            if meta_kind is not None:
+                return {"kind": "meta_help", "message": self._pending_content_meta_reply_message(pending, kind=meta_kind)}
             if self._should_discard_pending_action(text, pending=pending):
                 return {"kind": "discard"}
             reply = (text or "").strip()
@@ -3558,6 +3595,8 @@ class Agent:
 
     def _is_file_write_intent(self, text: str) -> bool:
         low = (text or "").lower()
+        if self._is_drafting_write_request(text):
+            return False
         if any(
             k in low
             for k in (
@@ -3574,9 +3613,39 @@ class Agent:
             )
         ):
             return True
+        if self._extract_ambiguous_write_target(text) is not None:
+            return True
         if re.search(r"\b(?:write|save|put)\b", low):
             return bool(self._extract_write_path(text) or self._artifact_context() is not None)
         return False
+
+    def _is_drafting_write_request(self, text: str) -> bool:
+        low = (text or "").strip().lower()
+        if not low.startswith("write "):
+            return False
+        if any(token in low for token in (" to ", " into ", " in ", ".txt", ".md", ".py", "/", "\\")):
+            return False
+        return bool(re.fullmatch(r"write\s+[a-z0-9_-]+\s+notes", low))
+
+    def _extract_ambiguous_write_target(self, text: str) -> str | None:
+        raw = (text or "").strip()
+        patterns = (
+            r"^\s*write\s+to\s+([A-Za-z0-9_-]+)\s*$",
+            r"^\s*write\s+([A-Za-z0-9_-]+)\s*$",
+            r"^\s*make\s+([A-Za-z0-9_-]+)\s*$",
+            r"^\s*update\s+([A-Za-z0-9_-]+)\s*$",
+        )
+        for pat in patterns:
+            m = re.match(pat, raw, flags=re.IGNORECASE)
+            if not m:
+                continue
+            candidate = str(m.group(1) or "").strip().strip("\"'`").rstrip(".,;!?")
+            if not candidate or candidate.lower() in self._FILE_SYNTAX_WORDS:
+                continue
+            if Path(candidate).suffix:
+                return None
+            return candidate
+        return None
 
     def _is_artifact_save_phrase(self, text: str) -> bool:
         low = (text or "").lower()
