@@ -76,7 +76,14 @@ class RuntimeOrchestrator:
             plan = RuntimePlan(steps=tuple(self.agent._plan_web_verify(user_text)))
 
         if decision.require_clarification:
-            msg = f"This request requires a tool or approval path that is currently unavailable.\n\nDetails: {decision.reason}"
+            if (
+                assessment.intent == "file_write"
+                and tuple(getattr(assessment, "missing_arguments", ()) or ()) == ("target path",)
+                and self.agent._active_artifact() is not None
+            ):
+                msg = "What filename should I save this as?"
+            else:
+                msg = f"This request requires a tool or approval path that is currently unavailable.\n\nDetails: {decision.reason}"
             self.agent._memory_add_event(role="assistant", content=msg, tags=["trusted:assistant"], meta={"thread_id": thread_id})
             if working_memory is not None:
                 working_memory.note_unresolved(decision.reason)

@@ -229,6 +229,69 @@ def test_chat_edit_replaces_existing_file_contents(tmp_path: Path) -> None:
     assert result.tool_results[0].output["path"] == str(target)
 
 
+def test_chat_canvas_artifact_with_filename_writes_file(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+    agent.ctx.request_active_artifact = {
+        "type": "code",
+        "language": "python",
+        "content": 'print("hello from canvas")\n',
+        "source": "canvas",
+        "is_dirty": True,
+        "title": "Canvas Draft",
+    }
+
+    result = agent.chat(
+        user_message="save this code as demo.py",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    target = work_dir / "demo.py"
+    assert result.ok is True
+    assert target.exists()
+    assert target.read_text(encoding="utf-8") == 'print("hello from canvas")\n'
+    assert result.tool_results
+    assert result.tool_results[0].tool == "fs.write_text"
+    assert result.tool_results[0].args["path"] == str(target)
+
+
+def test_chat_canvas_artifact_without_filename_requests_only_filename(tmp_path: Path) -> None:
+    agent, _work_dir = _prepare_fs_write_agent(tmp_path)
+    agent.ctx.request_active_artifact = {
+        "type": "code",
+        "language": "python",
+        "content": 'print("hello from canvas")\n',
+        "source": "canvas",
+    }
+
+    result = agent.chat(
+        user_message="save what's in canvas",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert result.ok is False
+    assert result.tool_results == tuple()
+    assert result.text == "What filename should I save this as?"
+
+
+def test_chat_save_code_without_canvas_keeps_missing_content_failure(tmp_path: Path) -> None:
+    agent, _work_dir = _prepare_fs_write_agent(tmp_path)
+
+    result = agent.chat(
+        user_message="save this code",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert result.ok is False
+    assert result.tool_results == tuple()
+    assert "Missing required arguments: target path, file content" in result.text
+
+
 def test_posix_absolute_write_prompt_is_tool_addressable(tmp_path: Path) -> None:
     agent, work_dir = _prepare_fs_write_agent(tmp_path)
     prompt = "create a file at /home/nexus/demo.txt with content hello"

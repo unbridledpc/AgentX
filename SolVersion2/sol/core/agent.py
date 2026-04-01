@@ -557,7 +557,7 @@ class Agent:
             evidence.extend(["file_delete"])
             if not target_paths:
                 missing.append("target path")
-        elif self._is_file_write_intent(text):
+        elif self._is_file_write_intent(text) or self._is_canvas_artifact_write_phrase(text):
             intent = "file_write"
             mode = "transform"
             requires_tools = True
@@ -566,9 +566,11 @@ class Agent:
             evidence.extend(["file_write"])
             if not target_paths:
                 missing.append("target path")
-            content = self._extract_write_content(text)
+            content = self._resolved_write_content(text, allow_active_artifact=True)
             if content is None and self._is_file_edit_intent(text):
                 missing.append("replacement content")
+            elif content is None and self._is_canvas_artifact_write_phrase(text):
+                missing.append("file content")
         elif self._is_file_read_intent(text) or (("summarize " in text.lower() or "summarise " in text.lower()) and bool(target_paths)):
             intent = "file_read"
             mode = "inspect"
@@ -782,10 +784,10 @@ class Agent:
 
         if assessment.intent == "file_write":
             w_path = self._extract_write_path(t) or path
-            content = self._extract_write_content(t)
+            content = self._resolved_write_content(t, allow_active_artifact=True)
             if not w_path:
                 return False, "Missing path for fs.write_text."
-            if content is None and not self._is_file_edit_intent(t):
+            if content is None and not self._is_file_edit_intent(t) and not self._is_canvas_artifact_write_phrase(t):
                 content = ""
             if content is None:
                 return False, "Missing content for fs.write_text."
@@ -2653,6 +2655,7 @@ class Agent:
             self._is_file_read_intent(text)
             or self._is_file_delete_intent(text)
             or self._is_file_write_intent(text)
+            or self._is_canvas_artifact_write_phrase(text)
             or self._is_repo_inspection_request(text)
             or (("summarize " in lowered or "summarise " in lowered) and bool(self._extract_path(text) or self._resolve_contextual_file_path(text)))
             or any(
@@ -2833,6 +2836,12 @@ class Agent:
             "make file",
             "write ",
             "edit ",
+            "save this code",
+            "save this as",
+            "save what's in canvas",
+            "save what is in canvas",
+            "save the code in canvas",
+            "save the canvas code",
             "replace its contents",
             "replace the contents",
             "replace contents",
@@ -3022,10 +3031,10 @@ class Agent:
                 )
             elif kind == "write":
                 path = self._extract_write_path(s)
-                content = self._extract_write_content(s)
+                content = self._resolved_write_content(s, allow_active_artifact=True)
                 if not path:
                     raise AgentPolicyError("Could not determine a file path to write. Example: 'write /path/to/file.txt with text \"...\"'.")
-                if content is None and not self._is_file_edit_intent(s):
+                if content is None and not self._is_file_edit_intent(s) and not self._is_canvas_artifact_write_phrase(s):
                     content = ""
                 if content is None:
                     raise AgentPolicyError("Could not determine file content. Use: with text \"...\"")
@@ -3238,6 +3247,26 @@ class Agent:
                 "replace its contents",
                 "replace the contents",
                 "replace contents",
+            )
+        )
+
+    def _is_canvas_artifact_write_phrase(self, text: str) -> bool:
+        low = (text or "").lower()
+        return any(
+            phrase in low
+            for phrase in (
+                "save this code",
+                "save the code in canvas",
+                "save what's in canvas",
+                "save what is in canvas",
+                "save the canvas code",
+                "save the code in the canvas",
+                "save this as",
+                "save this to file",
+                "write this to file",
+                "write this code to file",
+                "save in canvas",
+                "save from canvas",
             )
         )
 
@@ -3657,13 +3686,36 @@ class Agent:
         return None
 
     def _extract_write_path(self, text: str) -> str | None:
-        action = re.search(r"\b(?:create|make|write|edit)\b\s+(?P<tail>.+)$", text, flags=re.IGNORECASE | re.DOTALL)
+        action = re.search(r"\b(?:create|make|write|edit|save)\b\s+(?P<tail>.+)$", text, flags=re.IGNORECASE | re.DOTALL)
         if action:
             head, _content = self._split_file_content_clause(action.group("tail"))
             candidate = self._candidate_path_from_fragment(self._strip_file_intro_words(head))
             if candidate:
                 return candidate
         return self._extract_path(text)
+
+    def _active_artifact(self) -> dict[str, Any] | None:
+        artifact = getattr(self.ctx, "request_active_artifact", None)
+        if not isinstance(artifact, dict):
+            return None
+        if str(artifact.get("type") or "").strip().lower() != "code":
+            return None
+        if str(artifact.get("source") or "").strip().lower() != "canvas":
+            return None
+        content = artifact.get("content")
+        if not isinstance(content, str) or not content.strip():
+            return None
+        return artifact
+
+    def _resolved_write_content(self, text: str, *, allow_active_artifact: bool) -> str | None:
+        explicit = self._extract_write_content(text)
+        if explicit is not None:
+            return explicit
+        if allow_active_artifact and self._is_canvas_artifact_write_phrase(text):
+            artifact = self._active_artifact()
+            if artifact is not None:
+                return str(artifact.get("content") or "")
+        return None
 
     def _extract_write_content(self, text: str) -> str | None:
         # with text "..." / with content '...' / containing `...`

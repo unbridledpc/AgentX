@@ -178,6 +178,15 @@ export type WebPolicyUpdateResponse = {
 
 export type WebPolicySessionAllowRequest = { thread_id: string; domain: string; reason: string };
 export type WebPolicySessionClearRequest = { thread_id: string; reason: string };
+export type ActiveArtifactRequest = {
+  type: "code";
+  language: string;
+  content: string;
+  source: "canvas";
+  is_dirty?: boolean;
+  title?: string;
+  source_message_id?: string | null;
+};
 export type WebPolicySessionResponse = { ok: boolean; ts: number; audit_tail: AuditEntry[] };
 
 export type ThreadSummary = { id: string; title: string; updated_at: number };
@@ -386,12 +395,14 @@ export async function sendChatMessage(
   message: string,
   threadId?: string,
   responseMode: ResponseMode = "chat",
-  unsafeEnabled?: boolean
+  unsafeEnabled?: boolean,
+  activeArtifact?: ActiveArtifactRequest | null
 ): Promise<ChatResponse & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null }> {
   const body: Record<string, unknown> = { message };
   if (threadId) body.thread_id = threadId;
   if (responseMode) body.response_mode = responseMode;
   if (typeof unsafeEnabled === "boolean") body.unsafe_enabled = unsafeEnabled;
+  if (activeArtifact) body.active_artifact = activeArtifact;
   const res = await fetch(`${config.apiBase}/v1/chat`, {
     method: "POST",
     headers: jsonHeaders(),

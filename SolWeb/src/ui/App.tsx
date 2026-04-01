@@ -94,6 +94,21 @@ function buildCodeCanvasPrompt(payload: { scope: "selection" | "document"; conte
   ].join("\n");
 }
 
+function buildActiveCanvasArtifact(canvas: CodeCanvasState) {
+  if (!canvas.isOpen) return null;
+  const content = (canvas.content || "").trim();
+  if (!content) return null;
+  return {
+    type: "code" as const,
+    language: canvas.language,
+    content,
+    source: "canvas" as const,
+    is_dirty: canvas.isDirty,
+    title: canvas.title,
+    source_message_id: canvas.sourceMessageId,
+  };
+}
+
 function isEditableElement(element: Element | null): boolean {
   if (!(element instanceof HTMLElement)) return false;
   if (element.isContentEditable) return true;
@@ -826,7 +841,13 @@ export function App() {
         }
       }
 
-      const reply = await sendChatMessage(text, t1.id, "chat", Boolean(unsafeStatus?.unsafe_enabled));
+      const reply = await sendChatMessage(
+        text,
+        t1.id,
+        "chat",
+        Boolean(unsafeStatus?.unsafe_enabled),
+        buildActiveCanvasArtifact(codeCanvas)
+      );
       assistantReplyReceived = true;
       setLastProviderError(null);
       setLastRetrieved(Array.isArray(reply.retrieved) ? reply.retrieved : []);
@@ -872,6 +893,7 @@ export function App() {
     activeThread,
     chatModel,
     chatProvider,
+    codeCanvas,
     draft,
     modelOptions.openai,
     modelOptions.ollama,

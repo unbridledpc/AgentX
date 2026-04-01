@@ -33,11 +33,22 @@ from sol_api.solv2_bridge import SolV2Unavailable, get_agent_for_thread, get_han
 router = APIRouter(tags=["chat"])
 
 
+class ActiveArtifactRequest(BaseModel):
+    type: str
+    language: str
+    content: str
+    source: str
+    is_dirty: bool | None = None
+    title: str | None = None
+    source_message_id: str | None = None
+
+
 class ChatRequest(BaseModel):
     message: str
     thread_id: str | None = None
     response_mode: str = "chat"
     unsafe_enabled: bool | None = None
+    active_artifact: ActiveArtifactRequest | None = None
 
 
 class RetrievedChunk(BaseModel):
@@ -809,6 +820,7 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
             setattr(agent_ctx, "web_session_user", effective_user)
             setattr(agent_ctx, "request_unsafe_enabled", request_unsafe_enabled)
             setattr(agent_ctx, "request_agent_mode", "unsafe" if request_unsafe_enabled else str(getattr(agent_ctx.cfg.agent, "mode", "supervised")))
+            setattr(agent_ctx, "request_active_artifact", (request.active_artifact.model_dump() if request.active_artifact is not None else None))
         tokens = set_request_context(thread_id=effective_thread_id, user=effective_user, unsafe_enabled=request_unsafe_enabled)
         handle_cfg = getattr(h, "cfg", None)
         if provider == "ollama" and isinstance(getattr(handle_cfg, "llm", None), dict):
