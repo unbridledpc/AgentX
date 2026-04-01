@@ -82,6 +82,8 @@ class RuntimeOrchestrator:
                 and self.agent._artifact_context() is not None
             ):
                 msg = "What filename should I save this as?"
+            elif assessment.intent == "file_write" and tuple(getattr(assessment, "missing_arguments", ()) or ()) in {("file content",), ("replacement content",)}:
+                msg = "What content should I write to the file?"
             else:
                 msg = f"This request requires a tool or approval path that is currently unavailable.\n\nDetails: {decision.reason}"
             self.agent._memory_add_event(role="assistant", content=msg, tags=["trusted:assistant"], meta={"thread_id": thread_id})

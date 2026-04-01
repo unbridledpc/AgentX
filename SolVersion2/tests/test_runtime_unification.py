@@ -182,7 +182,8 @@ def test_memory_promotion_policy_filters_transient_noise(tmp_path: Path, monkeyp
         ("create a file named demo.txt with content hello", "demo.txt", "hello"),
         ('create a new file called pythoncode.py with content print("hello")', "pythoncode.py", 'print("hello")'),
         ('create TimeZone.py and put this in it: print("hello")', "TimeZone.py", 'print("hello")'),
-        ("create a file named notes.md", "notes.md", ""),
+        ('write "hello world" into demo2.txt', "demo2.txt", "hello world"),
+        ("create demo3.txt with hello", "demo3.txt", "hello"),
     ],
 )
 def test_chat_honors_requested_filename_for_create_prompts(tmp_path: Path, prompt: str, expected_name: str, expected_content: str) -> None:
@@ -204,6 +205,46 @@ def test_chat_honors_requested_filename_for_create_prompts(tmp_path: Path, promp
     assert result.tool_results[0].tool == "fs.write_text"
     assert result.tool_results[0].output["path"] == str(created)
     assert "Tool execution results:" in result.text
+
+
+def test_chat_write_without_content_requests_clarification(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+
+    result = agent.chat(
+        user_message="write into demo.txt",
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    assert result.ok is False
+    assert result.tool_results == tuple()
+    assert result.text == "What content should I write to the file?"
+    assert not (work_dir / "demo.txt").exists()
+
+
+def test_chat_artifact_content_overrides_inline_text_for_save(tmp_path: Path) -> None:
+    agent, work_dir = _prepare_fs_write_agent(tmp_path)
+    agent.ctx.request_artifact_context = ArtifactContext(
+        source="canvas",
+        type="code",
+        language="python",
+        content='print("from artifact")\n',
+        dirty=True,
+        title="Canvas Draft",
+    )
+
+    result = agent.chat(
+        user_message='save "inline text" as demo.py',
+        provider="stub",
+        model="stub",
+        thread_id="thread-1",
+    )
+
+    target = work_dir / "demo.py"
+    assert result.ok is True
+    assert target.exists()
+    assert target.read_text(encoding="utf-8") == 'print("from artifact")\n'
 
 
 def test_chat_edit_replaces_existing_file_contents(tmp_path: Path) -> None:

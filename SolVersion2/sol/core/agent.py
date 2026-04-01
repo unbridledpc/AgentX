@@ -635,10 +635,8 @@ class Agent:
             if not target_paths:
                 missing.append("target path")
             content = self._resolved_write_content(text, allow_artifact_context=True)
-            if content is None and self._is_file_edit_intent(text):
-                missing.append("replacement content")
-            elif content is None and self._is_artifact_save_phrase(text):
-                missing.append("file content")
+            if content is None:
+                missing.append("replacement content" if self._is_file_edit_intent(text) else "file content")
         elif self._is_file_read_intent(text) or (("summarize " in text.lower() or "summarise " in text.lower()) and bool(target_paths)):
             intent = "file_read"
             mode = "inspect"
@@ -856,8 +854,6 @@ class Agent:
             content = self._resolved_write_content(t, allow_artifact_context=True)
             if not w_path:
                 return False, "Missing path for fs.write_text."
-            if content is None and not self._is_file_edit_intent(t) and not self._is_artifact_save_phrase(t):
-                content = ""
             if content is None:
                 return False, "Missing content for fs.write_text."
             tool = self.tools.get_tool("fs.write_text")
@@ -2907,7 +2903,9 @@ class Agent:
             "make a file",
             "make file",
             "write ",
+            "put ",
             "edit ",
+            "save ",
             "save this",
             "save this code",
             "save this as",
@@ -3107,10 +3105,8 @@ class Agent:
                 content = self._resolved_write_content(s, allow_artifact_context=True)
                 if not path:
                     raise AgentPolicyError("Could not determine a file path to write. Example: 'write /path/to/file.txt with text \"...\"'.")
-                if content is None and not self._is_file_edit_intent(s) and not self._is_artifact_save_phrase(s):
-                    content = ""
                 if content is None:
-                    raise AgentPolicyError("Could not determine file content. Use: with text \"...\"")
+                    raise AgentPolicyError("What content should I write to the file?")
                 out.append(
                     PlanStep(
                         tool_name=self._normalize_tool_name("fs.write_text"),
@@ -3307,7 +3303,7 @@ class Agent:
 
     def _is_file_write_intent(self, text: str) -> bool:
         low = (text or "").lower()
-        return any(
+        if any(
             k in low
             for k in (
                 "create file",
@@ -3321,7 +3317,11 @@ class Agent:
                 "replace the contents",
                 "replace contents",
             )
-        )
+        ):
+            return True
+        if re.search(r"\b(?:write|save|put)\b", low):
+            return bool(self._extract_write_path(text) or self._artifact_context() is not None)
+        return False
 
     def _is_artifact_save_phrase(self, text: str) -> bool:
         low = (text or "").lower()
@@ -3834,14 +3834,31 @@ class Agent:
         return content if content.strip() else None
 
     def _resolved_write_content(self, text: str, *, allow_artifact_context: bool) -> str | None:
-        explicit = self._extract_write_content(text)
-        if explicit is not None:
-            return explicit
-        if allow_artifact_context and self._is_artifact_save_phrase(text):
+        if allow_artifact_context:
             artifact_content = self._artifact_content()
             if artifact_content is not None:
                 return artifact_content
+        explicit = self._extract_write_content(text)
+        if explicit is not None:
+            return explicit
         return None
+
+    def _extract_first_quoted_block(self, text: str) -> str | None:
+        for pat in (r'"([^"]+)"', r"'([^']+)'", r"`([^`]+)`"):
+            m = re.search(pat, text or "", flags=re.DOTALL)
+            if m:
+                value = m.group(1)
+                if value.strip():
+                    return value
+        return None
+
+    def _unwrap_wrapping_quotes(self, text: str) -> str:
+        value = (text or "").strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"', "`"}:
+            inner = value[1:-1]
+            if inner.strip():
+                return inner
+        return value
 
     def _extract_write_content(self, text: str) -> str | None:
         # with text "..." / with content '...' / containing `...`
@@ -3860,9 +3877,27 @@ class Agent:
         if content:
             return content.strip()
 
+        inline_patterns = (
+            r"\bwrite\s+(.+?)\s+\b(?:into|to|in)\b(?:\s+(?:the\s+)?file\b)?",
+            r"\bput\s+(.+?)\s+\b(?:into|in)\b(?:\s+(?:the\s+)?file\b)?",
+            r"\bsave\s+(.+?)\s+\bto\b(?:\s+(?:the\s+)?file\b)?",
+            r"\bsave\s+(.+?)\s+\bas\b(?:\s+(?:the\s+)?file\b)?",
+            r"\bcreate\b.+?\bwith\s+(.+)$",
+        )
+        for pat in inline_patterns:
+            m_inline = re.search(pat, text, flags=re.IGNORECASE | re.DOTALL)
+            if not m_inline:
+                continue
+            value = self._unwrap_wrapping_quotes(m_inline.group(1).strip().rstrip(".,;!?"))
+            if value:
+                return value
+
         m2 = re.search(r"(?:text|content)\s*:\s*(.+)$", text, flags=re.IGNORECASE | re.DOTALL)
         if m2:
             return m2.group(1).strip()
+        quoted = self._extract_first_quoted_block(text)
+        if quoted is not None:
+            return quoted
         return None
 
     def _extract_url(self, text: str) -> str | None:
