@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, constr
 from agentx_api.auth import current_user_id
 from agentx_api.config import config
 from agentx_api.rag.session import session_tracker
+from agentx_api.routes.settings import _read_settings
 
 router = APIRouter(tags=["threads"])
 
@@ -21,10 +22,14 @@ class ThreadSummary(BaseModel):
     id: str
     title: str
     updated_at: float
+    chat_provider: str | None = None
+    chat_model: str | None = None
 
 
 class ThreadCreate(BaseModel):
     title: str | None = None
+    chat_provider: str | None = None
+    chat_model: str | None = None
 
 
 class MessagePayload(BaseModel):
@@ -34,6 +39,11 @@ class MessagePayload(BaseModel):
 
 class TitlePayload(BaseModel):
     title: constr(strip_whitespace=True, min_length=1, max_length=config.thread_title_max)
+
+
+class ThreadModelPayload(BaseModel):
+    chat_provider: constr(strip_whitespace=True, min_length=1, max_length=40)
+    chat_model: constr(strip_whitespace=True, min_length=1, max_length=160)
 
 
 class Message(BaseModel):
@@ -48,6 +58,8 @@ class Thread(BaseModel):
     title: str
     created_at: float
     updated_at: float
+    chat_provider: str | None = None
+    chat_model: str | None = None
     messages: List[Message] = Field(default_factory=list)
 
 
@@ -155,7 +167,15 @@ def list_threads(http: Request) -> List[ThreadSummary]:
             thread = _load_stored_thread(path)
             if thread.owner_id != owner_id:
                 continue
-            summaries.append(ThreadSummary(id=thread.id, title=thread.title, updated_at=thread.updated_at))
+            summaries.append(
+                ThreadSummary(
+                    id=thread.id,
+                    title=thread.title,
+                    updated_at=thread.updated_at,
+                    chat_provider=thread.chat_provider,
+                    chat_model=thread.chat_model,
+                )
+            )
         except Exception:
             continue
     return sorted(summaries, key=lambda t: t.updated_at, reverse=True)
@@ -166,12 +186,17 @@ def create_thread(body: ThreadCreate, http: Request) -> Thread:
     owner_id = current_user_id(http)
     if not owner_id:
         raise HTTPException(status_code=401, detail="Authentication required.")
+    settings = _read_settings()
+    provider = (body.chat_provider or getattr(settings, "chatProvider", "stub") or "stub").strip().lower()
+    model = (body.chat_model or getattr(settings, "chatModel", "stub") or "stub").strip()
     now = time.time()
     thread = Thread(
         id=uuid.uuid4().hex,
         title=body.title or "New thread",
         created_at=now,
         updated_at=now,
+        chat_provider=provider,
+        chat_model=model,
         messages=[],
     )
     _write_thread(thread, owner_id=owner_id)
@@ -211,6 +236,23 @@ def update_thread_title(thread_id: str, http: Request, payload: TitlePayload = B
     if payload.title == thread.title:
         return thread
     thread.title = payload.title
+    thread.updated_at = time.time()
+    _write_thread(thread, owner_id=owner_id)
+    return thread
+
+
+@router.post("/threads/{thread_id}/model", response_model=Thread)
+def update_thread_model(thread_id: str, http: Request, payload: ThreadModelPayload = Body(...)) -> Thread:
+    owner_id = current_user_id(http)
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    provider = (payload.chat_provider or "stub").strip().lower()
+    model = (payload.chat_model or "stub").strip()
+    thread = _read_thread(thread_id, owner_id=owner_id)
+    if thread.chat_provider == provider and thread.chat_model == model:
+        return thread
+    thread.chat_provider = provider
+    thread.chat_model = model
     thread.updated_at = time.time()
     _write_thread(thread, owner_id=owner_id)
     return thread

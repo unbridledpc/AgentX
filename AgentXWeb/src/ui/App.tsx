@@ -17,6 +17,7 @@ import {
   sendChatMessage,
   deleteThread,
   updateThreadTitle,
+  updateThreadModel,
   Thread,
   ThreadSummary,
   UnsafeStatusResponse,
@@ -116,6 +117,22 @@ function isEditableElement(element: Element | null): boolean {
   if (element.isContentEditable) return true;
   const tag = element.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function threadSelection(thread: Pick<Thread, "chat_provider" | "chat_model"> | null | undefined, fallback: { provider: string; model: string }) {
+  const provider = (thread?.chat_provider || fallback.provider || "stub").trim().toLowerCase();
+  const model = (thread?.chat_model || fallback.model || "stub").trim();
+  return { provider, model };
+}
+
+function threadSummary(thread: Thread): ThreadSummary {
+  return {
+    id: thread.id,
+    title: thread.title,
+    updated_at: thread.updated_at,
+    chat_provider: thread.chat_provider,
+    chat_model: thread.chat_model,
+  };
 }
 
 export function App() {
@@ -399,8 +416,10 @@ export function App() {
         const serverProvider = res.chat_provider ?? "stub";
         const serverModel = res.chat_model ?? "stub";
         const last = lastServerSelectionRef.current;
-        setChatProvider((prev) => (prev === last.provider ? serverProvider : prev));
-        setChatModel((prev) => (prev === last.model ? serverModel : prev));
+        if (!activeThread?.id) {
+          setChatProvider((prev) => (prev === last.provider ? serverProvider : prev));
+          setChatModel((prev) => (prev === last.model ? serverModel : prev));
+        }
         lastServerSelectionRef.current = { provider: serverProvider, model: serverModel };
         setAvailableModels(res.available_chat_models ?? {});
         setModelsRefreshing(Boolean(res.models_refreshing));
@@ -432,7 +451,7 @@ export function App() {
       clearInterval(id);
       controller.abort();
     };
-  }, []);
+  }, [activeThread?.id]);
 
   useEffect(() => {
     if (authEnabled !== false || !auth) return;
@@ -563,36 +582,48 @@ export function App() {
         return;
       }
       try {
-        const current = await getSettings();
-        await saveSettings({ ...current, chatProvider: p, chatModel: m, ollamaBaseUrl });
+        if (activeThread?.id) {
+          const updated = await updateThreadModel(activeThread.id, p, m);
+          setActiveThread(updated);
+          setThreads((prev) => prev.map((thread) => (thread.id === updated.id ? threadSummary(updated) : thread)));
+        } else {
+          const current = await getSettings();
+          await saveSettings({ ...current, chatProvider: p, chatModel: m, ollamaBaseUrl });
+        }
       } catch (e) {
         console.error("Failed to persist chat selection", e);
-        setSystemMessage("Failed to save model selection.");
+        setSystemMessage(activeThread?.id ? "Failed to save this chat's model selection." : "Failed to save default model selection.");
       }
     },
-    [modelOptions.openai, modelOptions.ollama, ollamaBaseUrl, setSystemMessage, statusOk]
+    [activeThread?.id, modelOptions.openai, modelOptions.ollama, ollamaBaseUrl, setSystemMessage, statusOk]
   );
 
   const selectThread = useCallback(async (id: string) => {
     if (!statusOk) return;
     const thread = await getThread(id);
     setActiveThread(thread);
+    const selection = threadSelection(thread, { provider: lastServerSelectionRef.current.provider, model: lastServerSelectionRef.current.model });
+    setChatProvider(selection.provider);
+    setChatModel(selection.model);
     onAfterNavAction();
     scheduleComposerFocus({ force: true });
   }, [onAfterNavAction, scheduleComposerFocus, statusOk]);
 
   const newChat = useCallback(async () => {
     if (!statusOk) return;
-    const t = await createThread();
+    const t = await createThread(undefined, { chatProvider, chatModel });
     setActiveThread(t);
-    setThreads((prev) => [{ id: t.id, title: t.title, updated_at: t.updated_at }, ...prev.filter((x) => x.id !== t.id)]);
+    const selection = threadSelection(t, { provider: chatProvider, model: chatModel });
+    setChatProvider(selection.provider);
+    setChatModel(selection.model);
+    setThreads((prev) => [threadSummary(t), ...prev.filter((x) => x.id !== t.id)]);
     if (activeProjectId) {
       threadProjectMapRef.current[t.id] = activeProjectId;
       persistThreadProjectMap();
     }
     onAfterNavAction();
     scheduleComposerFocus({ force: true });
-  }, [activeProjectId, onAfterNavAction, persistThreadProjectMap, scheduleComposerFocus, statusOk]);
+  }, [activeProjectId, chatModel, chatProvider, onAfterNavAction, persistThreadProjectMap, scheduleComposerFocus, statusOk]);
 
   const deleteChat = useCallback(
     async (threadId: string) => {
@@ -627,7 +658,7 @@ export function App() {
       try {
         const updated = await updateThreadTitle(threadId, trimmed);
         setThreads((prev) => [
-          { id: updated.id, title: updated.title, updated_at: updated.updated_at },
+          threadSummary(updated),
           ...prev.filter((t) => t.id !== updated.id),
         ]);
         setActiveThread((prev) => (prev?.id === updated.id ? updated : prev));
@@ -804,9 +835,9 @@ export function App() {
 
     let thread = activeThread;
     if (!thread) {
-      thread = await createThread();
+      thread = await createThread(undefined, { chatProvider, chatModel });
       setActiveThread(thread);
-      setThreads((prev) => [{ id: thread!.id, title: thread!.title, updated_at: thread!.updated_at }, ...prev]);
+      setThreads((prev) => [threadSummary(thread!), ...prev]);
       if (activeProjectId) {
         threadProjectMapRef.current[thread.id] = activeProjectId;
         persistThreadProjectMap();
@@ -829,7 +860,7 @@ export function App() {
       const t1 = await appendThreadMessage(thread.id, { role: "user", content: text });
       userMessagePersisted = true;
       setActiveThread(t1);
-      setThreads((prev) => [{ id: t1.id, title: t1.title, updated_at: t1.updated_at }, ...prev.filter((x) => x.id !== t1.id)]);
+      setThreads((prev) => [threadSummary(t1), ...prev.filter((x) => x.id !== t1.id)]);
 
       if (wasEmpty && wasDefaultTitle) {
         const title = generateAutoTitle(text);
@@ -837,7 +868,7 @@ export function App() {
         try {
           const t2 = await updateThreadTitle(t1.id, title);
           setActiveThread(t2);
-          setThreads((prev) => [{ id: t2.id, title: t2.title, updated_at: t2.updated_at }, ...prev.filter((x) => x.id !== t2.id)]);
+          setThreads((prev) => [threadSummary(t2), ...prev.filter((x) => x.id !== t2.id)]);
         } catch {
           // ignore title failure in web client; thread still works
         }
@@ -859,7 +890,7 @@ export function App() {
       setLastWebMeta(reply.web ?? null);
       const t3 = await appendThreadMessage(t1.id, { role: "assistant", content: reply.content });
       setActiveThread(t3);
-      setThreads((prev) => [{ id: t3.id, title: t3.title, updated_at: t3.updated_at }, ...prev.filter((x) => x.id !== t3.id)]);
+      setThreads((prev) => [threadSummary(t3), ...prev.filter((x) => x.id !== t3.id)]);
       const assistantMessage = t3.messages[t3.messages.length - 1];
       const canvasDetection = assistantMessage
         ? detectCodeCanvas({

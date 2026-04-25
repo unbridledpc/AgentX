@@ -793,7 +793,9 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
     user_id = current_user_id(http)
     requested_thread_id = (request.thread_id or "").strip() or None
     if requested_thread_id and user_id:
-        ensure_thread_owner(requested_thread_id, owner_id=user_id)
+        thread = ensure_thread_owner(requested_thread_id, owner_id=user_id)
+        provider = (thread.chat_provider or provider or "stub").strip().lower()
+        model = (thread.chat_model or model or "stub").strip()
 
     # Prefer AgentX agent loop when available to guarantee a single path:
     # UI -> API -> Agent -> Tools -> Audit -> Memory.

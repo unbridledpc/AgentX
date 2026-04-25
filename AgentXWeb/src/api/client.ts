@@ -190,7 +190,7 @@ export type ArtifactContextRequest = {
 };
 export type WebPolicySessionResponse = { ok: boolean; ts: number; audit_tail: AuditEntry[] };
 
-export type ThreadSummary = { id: string; title: string; updated_at: number };
+export type ThreadSummary = { id: string; title: string; updated_at: number; chat_provider?: string | null; chat_model?: string | null };
 export type Message = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -202,6 +202,8 @@ export type Thread = {
   title: string;
   created_at: number;
   updated_at: number;
+  chat_provider?: string | null;
+  chat_model?: string | null;
   messages: Message[];
 };
 
@@ -498,11 +500,15 @@ export async function listThreads(): Promise<ThreadSummary[]> {
   return handle(res);
 }
 
-export async function createThread(title?: string): Promise<Thread> {
+export async function createThread(title?: string, modelSelection?: { chatProvider?: string; chatModel?: string }): Promise<Thread> {
   const res = await fetch(`${config.apiBase}/v1/threads`, {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify({ title })
+    body: JSON.stringify({
+      title,
+      chat_provider: modelSelection?.chatProvider,
+      chat_model: modelSelection?.chatModel,
+    })
   });
   return handle(res);
 }
@@ -529,6 +535,15 @@ export async function updateThreadTitle(threadId: string, title: string): Promis
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify({ title })
+  });
+  return handle(res);
+}
+
+export async function updateThreadModel(threadId: string, chatProvider: string, chatModel: string): Promise<Thread> {
+  const res = await fetch(`${config.apiBase}/v1/threads/${threadId}/model`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ chat_provider: chatProvider, chat_model: chatModel })
   });
   return handle(res);
 }
