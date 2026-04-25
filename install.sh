@@ -125,11 +125,11 @@ apt_install_if_needed() {
 
 ensure_nodejs_supported() {
   local need_nodesource=0
-  local node_major=""
+  local node_version=""
   if command -v node >/dev/null 2>&1; then
-    node_major="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || true)"
+    node_version="$(node -p "process.versions.node" 2>/dev/null || true)"
   fi
-  if [[ -z "$node_major" ]] || [[ "$node_major" -lt 20 ]]; then
+  if ! node_version_is_supported "$node_version"; then
     need_nodesource=1
   fi
 
@@ -138,7 +138,7 @@ ensure_nodejs_supported() {
   fi
 
   if [[ "${NEXAI_SKIP_APT:-0}" == "1" ]]; then
-    die "error: Node.js >= 20 is required, but the current version is insufficient and NEXAI_SKIP_APT=1."
+    die "error: Node.js 20.19+ or 22.12+ is required for the Vite 8 toolchain, but the current version is unsupported and NEXAI_SKIP_APT=1."
   fi
 
   local sudo_cmd=()
@@ -147,12 +147,33 @@ ensure_nodejs_supported() {
     sudo_cmd=(sudo)
   fi
 
-  info "Installing Node.js 20 runtime for SolWeb..."
+  info "Installing a Node.js runtime compatible with Vite 8 for SolWeb..."
   "${sudo_cmd[@]}" mkdir -p /etc/apt/keyrings
   curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | "${sudo_cmd[@]}" gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | "${sudo_cmd[@]}" tee /etc/apt/sources.list.d/nodesource.list >/dev/null
   "${sudo_cmd[@]}" apt-get update
   "${sudo_cmd[@]}" apt-get install -y nodejs
+}
+
+node_version_is_supported() {
+  local version="${1#v}"
+  local major minor patch
+  IFS=. read -r major minor patch <<<"$version"
+  if [[ -z "${major:-}" || -z "${minor:-}" || -z "${patch:-}" ]]; then
+    return 1
+  fi
+  if ! [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "$patch" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  if (( major == 20 )); then
+    (( minor >= 19 ))
+    return
+  fi
+  if (( major == 22 )); then
+    (( minor >= 12 ))
+    return
+  fi
+  (( major > 22 ))
 }
 
 prepare_repo_checkout() {

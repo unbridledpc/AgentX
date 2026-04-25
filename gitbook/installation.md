@@ -16,7 +16,7 @@ What `install.sh` does:
 
 - Checks for Linux and warns if the OS is not Ubuntu 24.04.
 - Installs required packages unless `NEXAI_SKIP_APT=1`.
-- Ensures Node.js 20+ for building SolWeb.
+- Ensures Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer for building SolWeb with Vite 8.
 - Clones the repo to the app bundle path.
 - Runs `npm install` and `npm run build` inside `SolWeb`.
 - Runs `install-sol.sh` with non-interactive setup arguments.

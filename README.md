@@ -152,7 +152,7 @@ If a folder is named `data` but contains source documentation, preserve it. For 
 Recommended development tools:
 
 - Python 3.11 or newer
-- Node.js 20 or newer
+- Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer for SolWeb and apps/desktop builds
 - npm
 - Git
 - Rust and Cargo for desktop/Tauri checks
@@ -203,6 +203,8 @@ PYTHONPATH="../../SolVersion2:." python -m sol_api --host 127.0.0.1 --port 8420
 
 ## Web UI Setup
 
+SolWeb uses the Vite 8 toolchain and requires Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer.
+
 ```bash
 cd SolWeb
 npm ci
@@ -226,6 +228,8 @@ http://127.0.0.1:8420
 ```
 
 ## Desktop Setup
+
+The desktop frontend uses the Vite 8 toolchain and requires Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer.
 
 ```bash
 cd apps/desktop

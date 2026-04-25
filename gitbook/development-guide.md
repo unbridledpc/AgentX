@@ -5,7 +5,7 @@
 Useful local development tools:
 
 - Python 3.11+
-- Node.js 20+
+- Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer for SolWeb and apps/desktop builds
 - npm
 - Git
 - Rust toolchain for Tauri desktop work
@@ -67,6 +67,8 @@ python -m sol_api --host 127.0.0.1 --port 8420
 
 ## Web Development
 
+SolWeb uses the Vite 8 toolchain and requires Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer.
+
 ```bash
 cd SolWeb
 npm install
@@ -91,6 +93,8 @@ npm run build
 ```
 
 ## Desktop Development
+
+The desktop frontend uses the Vite 8 toolchain and requires Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer.
 
 ```bash
 cd apps/desktop

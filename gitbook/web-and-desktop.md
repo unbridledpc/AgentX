@@ -4,6 +4,8 @@
 
 `SolWeb` is the main browser interface. It is a React 18 and Vite app with Tailwind CSS, TypeScript, Vitest, and a typed API client.
 
+SolWeb uses the Vite 8 toolchain and requires Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer.
+
 Common commands:
 
 ```bash
@@ -68,6 +70,8 @@ It handles:
 ## Desktop Client
 
 `apps/desktop` is a Tauri 2 desktop shell using React and Vite.
+
+The desktop frontend uses the Vite 8 toolchain and requires Node.js 20.19+ on Node 20, or Node.js 22.12+ or newer.
 
 Common commands:
 
