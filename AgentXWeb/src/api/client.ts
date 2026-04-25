@@ -238,7 +238,7 @@ export type AgentXSettings = {
   ollamaRequestTimeoutS?: number;
   assistantDisplayName?: string;
   userDisplayName?: string;
-  appearancePreset?: "agentx" | "midnight" | "ice";
+  appearancePreset?: "agentx" | "midnight" | "ice" | "emerald" | "violet" | "amber";
   accentIntensity?: "soft" | "balanced" | "vivid";
   densityMode?: "compact" | "comfortable" | "airy";
   layout?: LayoutSettings;

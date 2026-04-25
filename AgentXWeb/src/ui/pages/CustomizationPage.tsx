@@ -52,9 +52,12 @@ export function CustomizationPage({ statusOk, settings, layoutGuards, onSettings
 
   const appearancePresetOptions = useMemo<AgentXDropdownOption[]>(
     () => [
-      { value: "agentx", label: "AgentX" },
-      { value: "midnight", label: "Midnight" },
+      { value: "agentx", label: "AgentX Cyan" },
+      { value: "midnight", label: "Midnight Blue" },
       { value: "ice", label: "Ice" },
+      { value: "emerald", label: "Emerald" },
+      { value: "violet", label: "Violet" },
+      { value: "amber", label: "Amber" },
     ],
     []
   );
@@ -216,7 +219,7 @@ export function CustomizationPage({ statusOk, settings, layoutGuards, onSettings
               />
 
               <div className={tokens.helperText}>
-                Appearance settings are stored independently from provider and model configuration, and act as the foundation for future visual presets.
+                Preset changes the active color palette immediately. Accent Intensity controls how strong the selected palette glows, while Density controls spacing.
               </div>
             </div>
           </Panel>

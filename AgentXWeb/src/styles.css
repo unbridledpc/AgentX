@@ -1666,3 +1666,189 @@ input[type="checkbox"] {
 .agentx-shell .agentx-settings-menu {
   border-color: rgba(125, 211, 252, var(--agentx-accent-border-alpha));
 }
+
+/* Preset-driven theme color system.
+   Keep this near the end of the file so palette changes override older cyan-only rules. */
+.agentx-shell {
+  --agentx-accent-primary-rgb: 34 211 238;
+  --agentx-accent-secondary-rgb: 59 130 246;
+  --agentx-accent-highlight-rgb: 125 211 252;
+  --agentx-accent-soft-rgb: 186 230 253;
+  --agentx-accent-contrast: #e0f7ff;
+  --agentx-accent-muted: rgba(186, 230, 253, 0.82);
+  --agentx-accent-warm-rgb: 8 145 178;
+}
+
+.agentx-shell[data-appearance-preset="midnight"] {
+  --agentx-accent-primary-rgb: 96 165 250;
+  --agentx-accent-secondary-rgb: 37 99 235;
+  --agentx-accent-highlight-rgb: 147 197 253;
+  --agentx-accent-soft-rgb: 191 219 254;
+  --agentx-accent-contrast: #dbeafe;
+  --agentx-accent-muted: rgba(191, 219, 254, 0.82);
+  --agentx-accent-warm-rgb: 37 99 235;
+}
+
+.agentx-shell[data-appearance-preset="ice"] {
+  --agentx-accent-primary-rgb: 165 243 252;
+  --agentx-accent-secondary-rgb: 147 197 253;
+  --agentx-accent-highlight-rgb: 224 242 254;
+  --agentx-accent-soft-rgb: 240 249 255;
+  --agentx-accent-contrast: #f0f9ff;
+  --agentx-accent-muted: rgba(224, 242, 254, 0.88);
+  --agentx-accent-warm-rgb: 125 211 252;
+}
+
+.agentx-shell[data-appearance-preset="emerald"] {
+  --agentx-accent-primary-rgb: 52 211 153;
+  --agentx-accent-secondary-rgb: 16 185 129;
+  --agentx-accent-highlight-rgb: 110 231 183;
+  --agentx-accent-soft-rgb: 167 243 208;
+  --agentx-accent-contrast: #d1fae5;
+  --agentx-accent-muted: rgba(167, 243, 208, 0.82);
+  --agentx-accent-warm-rgb: 5 150 105;
+}
+
+.agentx-shell[data-appearance-preset="violet"] {
+  --agentx-accent-primary-rgb: 167 139 250;
+  --agentx-accent-secondary-rgb: 124 58 237;
+  --agentx-accent-highlight-rgb: 196 181 253;
+  --agentx-accent-soft-rgb: 221 214 254;
+  --agentx-accent-contrast: #ede9fe;
+  --agentx-accent-muted: rgba(221, 214, 254, 0.82);
+  --agentx-accent-warm-rgb: 109 40 217;
+}
+
+.agentx-shell[data-appearance-preset="amber"] {
+  --agentx-accent-primary-rgb: 251 191 36;
+  --agentx-accent-secondary-rgb: 245 158 11;
+  --agentx-accent-highlight-rgb: 253 224 71;
+  --agentx-accent-soft-rgb: 254 243 199;
+  --agentx-accent-contrast: #fef3c7;
+  --agentx-accent-muted: rgba(254, 243, 199, 0.84);
+  --agentx-accent-warm-rgb: 217 119 6;
+}
+
+.agentx-shell {
+  background:
+    radial-gradient(circle at top left, rgb(var(--agentx-accent-primary-rgb) / var(--agentx-shell-cyan-alpha)), transparent 22%),
+    radial-gradient(circle at bottom right, rgb(var(--agentx-accent-secondary-rgb) / var(--agentx-shell-blue-alpha)), transparent 18%);
+}
+
+.agentx-shell::after {
+  background: linear-gradient(90deg, transparent 0%, rgb(var(--agentx-accent-primary-rgb) / calc(var(--agentx-accent-border-alpha) + 0.22)) 18%, rgb(var(--agentx-accent-secondary-rgb) / var(--agentx-accent-border-alpha)) 52%, transparent 100%);
+}
+
+.agentx-shell .agentx-panel::before {
+  border-color: rgb(var(--agentx-accent-highlight-rgb) / var(--agentx-accent-border-alpha));
+  box-shadow: 0 0 34px rgb(var(--agentx-accent-primary-rgb) / var(--agentx-accent-glow-alpha));
+}
+
+.agentx-shell .agentx-feed,
+.agentx-shell .agentx-main-panel,
+.agentx-shell .agentx-composer,
+.agentx-shell .agentx-code-canvas,
+.agentx-shell .agentx-dropdown__menu,
+.agentx-shell .agentx-context-menu {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.92)),
+    radial-gradient(circle at top, rgb(var(--agentx-accent-primary-rgb) / 0.07), transparent 24%);
+}
+
+.agentx-shell .agentx-badge__dot {
+  background: linear-gradient(180deg, rgb(var(--agentx-accent-highlight-rgb) / 1), rgb(var(--agentx-accent-secondary-rgb) / 0.94));
+  box-shadow: 0 0 0 4px rgb(var(--agentx-accent-primary-rgb) / 0.08), 0 0 18px rgb(var(--agentx-accent-primary-rgb) / 0.26);
+}
+
+.agentx-shell .agentx-status-pill--ok {
+  border-color: rgb(var(--agentx-accent-primary-rgb) / 0.34);
+  color: var(--agentx-accent-contrast);
+}
+
+.agentx-shell .agentx-field-label,
+.agentx-shell .agentx-inspector .agentx-kv-label {
+  color: var(--agentx-accent-muted);
+}
+
+.agentx-shell .agentx-button:focus-visible,
+.agentx-shell .agentx-toggle:focus-visible,
+.agentx-shell .agentx-input:focus-visible,
+.agentx-shell .agentx-textarea:focus-visible,
+.agentx-shell .agentx-dropdown__trigger:focus-visible,
+.agentx-shell .agentx-message-canvas-note__button:focus-visible {
+  border-color: rgb(var(--agentx-accent-primary-rgb) / 0.55);
+  box-shadow: 0 0 0 3px rgb(var(--agentx-accent-primary-rgb) / 0.14), inset 0 1px 0 rgba(148, 163, 184, 0.05);
+}
+
+.agentx-shell .agentx-button--primary,
+.agentx-shell .agentx-send-button {
+  border-color: rgb(var(--agentx-accent-primary-rgb) / 0.36);
+  background: linear-gradient(135deg, rgb(var(--agentx-accent-primary-rgb) / 0.18), rgb(var(--agentx-accent-secondary-rgb) / 0.25));
+  color: #f8fafc;
+  box-shadow: 0 10px 28px rgb(var(--agentx-accent-warm-rgb) / 0.16);
+}
+
+.agentx-shell .agentx-button--primary:hover:not(:disabled),
+.agentx-shell .agentx-send-button:hover:not(:disabled) {
+  border-color: rgb(var(--agentx-accent-highlight-rgb) / 0.46);
+  box-shadow: 0 12px 30px rgb(var(--agentx-accent-warm-rgb) / 0.24);
+}
+
+.agentx-shell .agentx-button--secondary:hover:not(:disabled),
+.agentx-shell .agentx-button--utility:hover:not(:disabled),
+.agentx-shell .agentx-message-canvas-note__button:hover,
+.agentx-shell .agentx-dropdown__trigger:hover:not(:disabled) {
+  border-color: rgb(var(--agentx-accent-highlight-rgb) / 0.3);
+  color: var(--agentx-accent-contrast);
+}
+
+.agentx-shell .agentx-toggle--on {
+  border-color: rgb(var(--agentx-accent-primary-rgb) / 0.34);
+  background:
+    linear-gradient(180deg, rgba(14, 30, 49, 0.96), rgba(9, 19, 33, 0.94)),
+    radial-gradient(circle at left, rgb(var(--agentx-accent-primary-rgb) / 0.18), transparent 42%);
+}
+
+.agentx-shell .agentx-toggle--on .agentx-toggle__thumb {
+  background: linear-gradient(180deg, rgb(var(--agentx-accent-soft-rgb) / 0.98), rgb(var(--agentx-accent-highlight-rgb) / 0.92));
+  box-shadow: 0 0 18px rgb(var(--agentx-accent-primary-rgb) / 0.3), 0 6px 14px rgba(2, 8, 23, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.agentx-shell .agentx-dropdown__chevron,
+.agentx-shell .agentx-dropdown__check {
+  color: rgb(var(--agentx-accent-highlight-rgb) / 0.92);
+}
+
+.agentx-shell .agentx-dropdown--open .agentx-dropdown__trigger,
+.agentx-shell .agentx-dropdown__option--selected,
+.agentx-shell .agentx-dropdown__option:hover:not(:disabled),
+.agentx-shell .agentx-dropdown__option--highlighted {
+  border-color: rgb(var(--agentx-accent-primary-rgb) / 0.28);
+}
+
+.agentx-shell .agentx-dropdown__option--selected {
+  background: linear-gradient(180deg, rgb(var(--agentx-accent-primary-rgb) / 0.12), rgb(var(--agentx-accent-secondary-rgb) / 0.12));
+  color: var(--agentx-accent-contrast);
+}
+
+.agentx-shell .agentx-responding__dots span {
+  background: rgb(var(--agentx-accent-highlight-rgb) / 0.9);
+}
+
+.agentx-shell .agentx-code-canvas {
+  --agentx-code-canvas-accent: rgb(var(--agentx-accent-primary-rgb) / 0.32);
+}
+
+.agentx-shell .agentx-topbar {
+  box-shadow: 0 12px 34px rgb(var(--agentx-accent-primary-rgb) / calc(var(--agentx-accent-glow-alpha) * 0.55));
+}
+
+.agentx-shell [data-accent-surface="true"],
+.agentx-shell .agentx-settings-menu {
+  border-color: rgb(var(--agentx-accent-highlight-rgb) / var(--agentx-accent-border-alpha));
+}
+
+.agentx-shell ::selection {
+  background: rgb(var(--agentx-accent-primary-rgb) / 0.26);
+  color: #f8fafc;
+}
