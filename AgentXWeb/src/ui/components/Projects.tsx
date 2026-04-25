@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { config } from "../../config";
+import { createClientId } from "../clientId";
 
 export type Project = { id: string; name: string; createdAt: number };
 
@@ -32,7 +33,7 @@ export function useProjects() {
   const createProject = (name?: string) => {
     const nextName = (name ?? window.prompt("Project name?") ?? "").trim();
     if (!nextName) return;
-    const project: Project = { id: crypto.randomUUID(), name: nextName, createdAt: Date.now() };
+    const project: Project = { id: createClientId("project"), name: nextName, createdAt: Date.now() };
     const next = [project, ...projects];
     setProjects(next);
     saveProjects(next);

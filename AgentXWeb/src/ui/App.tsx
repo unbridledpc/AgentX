@@ -38,6 +38,7 @@ import { clearAuth, loadAuth, logout, tryLogin, type AuthState } from "./auth";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { ChatMessage } from "./components/ChatMessage";
 import { BrandBadge } from "./components/BrandBadge";
+import { createClientId } from "./clientId";
 import { AgentXDropdown, type AgentXDropdownOption } from "./components/AgentXDropdown";
 import { theme } from "./theme";
 import { CodeCanvas } from "./components/CodeCanvas";
@@ -818,7 +819,7 @@ export function App() {
     setDraft("");
     scheduleComposerFocus({ force: true });
 
-    const localUser = { id: crypto.randomUUID(), role: "user" as const, content: text, ts: Date.now() / 1000 };
+    const localUser = { id: createClientId("message"), role: "user" as const, content: text, ts: Date.now() / 1000 };
     setActiveThread((prev) => (prev ? { ...prev, messages: [...prev.messages, localUser] } : prev));
 
     setSending(true);
