@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import socket
 import sys
 import urllib.parse
 from dataclasses import dataclass
@@ -603,6 +604,49 @@ def _prompt_ollama_endpoint(*, platform_info) -> str:
         return base_url
 
 
+_BIND_ALL_HOSTS = {"0.0.0.0", "::", "[::]"}
+
+
+def _detect_primary_interface_ip() -> str | None:
+    candidates: list[str] = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(0.25)
+            sock.connect(("8.8.8.8", 80))
+            candidates.append(sock.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        candidates.extend(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    for candidate in candidates:
+        if candidate and not candidate.startswith("127."):
+            return candidate
+    return None
+
+
+def _format_url_host(host: str) -> str:
+    host = (host or "").strip()
+    if not host:
+        return "127.0.0.1"
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        return f"[{host}]"
+    return host
+
+
+def display_host_for_bind_host(host: str) -> str:
+    normalized = (host or "").strip().lower()
+    if normalized in _BIND_ALL_HOSTS:
+        return _detect_primary_interface_ip() or "127.0.0.1"
+    return _format_url_host(host or "127.0.0.1")
+
+
+def web_ui_display_url(config: InstallConfig) -> str | None:
+    if not config.web.enabled:
+        return None
+    return f"http://{display_host_for_bind_host(config.web.host)}:{config.web.port}"
+
 def render_setup_summary(
     config: InstallConfig,
     *,
@@ -611,7 +655,7 @@ def render_setup_summary(
     provisioning_ok: bool | None = None,
     launcher_path: str | None = None,
 ) -> str:
-    web_url = f"http://{config.web.host}:{config.web.port}" if config.web.enabled else None
+    web_url = web_ui_display_url(config)
     lines = [
         "",
         f"{BRAND_NAME} is ready." if setup_complete else f"{BRAND_NAME} setup plan:",

@@ -525,6 +525,26 @@ def test_render_setup_summary_includes_next_steps(tmp_path: Path) -> None:
     assert "Open the web UI: http://127.0.0.1:5173" in summary
 
 
+
+def test_render_setup_summary_uses_reachable_web_url_for_bind_all(tmp_path: Path, monkeypatch) -> None:
+    cfg = build_install_config(
+        app_root=tmp_path / "app",
+        runtime_root=tmp_path / "runtime",
+        working_dir=tmp_path / "work",
+        profile=InstallProfile.STANDARD,
+        model_provider="stub",
+        api_host="0.0.0.0",
+        api_port=8420,
+        web_host="0.0.0.0",
+        web_port=5173,
+    )
+    monkeypatch.setattr("agentx.install.wizard._detect_primary_interface_ip", lambda: "172.17.24.34")
+
+    summary = render_setup_summary(cfg, setup_complete=True)
+
+    assert "Open the web UI: http://172.17.24.34:5173" in summary
+    assert "Open the web UI: http://0.0.0.0:5173" not in summary
+
 def test_render_profile_summary_uses_resolved_identity() -> None:
     summary = render_profile_summary(LocalProfileSelection(mode="explicit", display_name="Local Jane", profile_id="jane-lab"))
     assert "Display name: Local Jane" in summary
