@@ -28,3 +28,15 @@ export function buildSendFailureMessage(args: {
 export function restoreDraftAfterSendFailure(originalDraft: string, userMessagePersisted: boolean): string {
   return userMessagePersisted ? "" : originalDraft;
 }
+
+export function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: unknown; message?: unknown };
+  if (candidate.name === "AbortError") return true;
+  if (typeof candidate.message === "string" && candidate.message.toLowerCase().includes("abort")) return true;
+  return false;
+}
+
+export function restoreDraftAfterStop(originalDraft: string, currentDraft: string): string {
+  return currentDraft.trim().length > 0 ? currentDraft : originalDraft;
+}

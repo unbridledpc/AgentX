@@ -45,7 +45,7 @@ import { theme } from "./theme";
 import { CodeCanvas } from "./components/CodeCanvas";
 import { defaultCodeCanvasState, detectCodeCanvas, loadCodeCanvasState, saveCodeCanvasState, type CodeCanvasState } from "./codeCanvas";
 import { applyPendingLayoutToSettings, clearPendingLayoutSave, loadPendingLayoutSave, pendingLayoutChangedEventName } from "./layoutPersistence";
-import { buildSendFailureMessage, restoreDraftAfterSendFailure, rollbackOptimisticThread } from "./chatSend";
+import { buildSendFailureMessage, isAbortError, restoreDraftAfterSendFailure, restoreDraftAfterStop, rollbackOptimisticThread } from "./chatSend";
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => {
@@ -167,6 +167,7 @@ export function App() {
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [sending, setSending] = useState(false);
+  const activeSendAbortRef = useRef<AbortController | null>(null);
   const [lastRetrieved, setLastRetrieved] = useState<RetrievedChunk[]>([]);
   const [lastAuditTail, setLastAuditTail] = useState<AuditEntry[]>([]);
   const [lastVerificationLevel, setLastVerificationLevel] = useState<string | null>(null);
@@ -799,6 +800,12 @@ export function App() {
     scheduleComposerFocus();
   }, [activeThread?.id, activeView, scheduleComposerFocus]);
 
+  const stopSending = useCallback(() => {
+    const controller = activeSendAbortRef.current;
+    if (!controller || controller.signal.aborted) return;
+    controller.abort();
+  }, []);
+
   const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || sending) return;
@@ -874,12 +881,15 @@ export function App() {
         }
       }
 
+      const controller = new AbortController();
+      activeSendAbortRef.current = controller;
       const reply = await sendChatMessage(
         text,
         t1.id,
         "chat",
         Boolean(unsafeStatus?.unsafe_enabled),
-        buildActiveCanvasArtifact(codeCanvas)
+        buildActiveCanvasArtifact(codeCanvas),
+        controller.signal
       );
       assistantReplyReceived = true;
       setLastProviderError(null);
@@ -911,6 +921,12 @@ export function App() {
         });
       }
     } catch (e) {
+      if (isAbortError(e)) {
+        setActiveThread((prev) => rollbackOptimisticThread(prev, localUser.id, userMessagePersisted));
+        setDraft((current) => restoreDraftAfterStop(text, current));
+        setSystemMessage("Response stopped. Edit the composer and send again when you are ready.");
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       if (e instanceof ApiError && e.providerError) {
         setLastProviderError(e.providerError);
@@ -919,6 +935,7 @@ export function App() {
       setDraft(restoreDraftAfterSendFailure(text, userMessagePersisted));
       setSystemMessage(buildSendFailureMessage({ errorMessage: msg, userMessagePersisted, assistantReplyReceived }));
     } finally {
+      activeSendAbortRef.current = null;
       setSending(false);
     }
   }, [
@@ -1053,10 +1070,14 @@ export function App() {
       }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
+        if (sending) {
+          stopSending();
+          return;
+        }
         void send();
       }
     },
-    [applyToolSuggestion, send, toolHighlight, toolSuggestions]
+    [applyToolSuggestion, send, sending, stopSending, toolHighlight, toolSuggestions]
   );
 
   useEffect(() => {
@@ -1601,7 +1622,7 @@ export function App() {
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     placeholder={statusOk ? `Message ${assistantDisplayName}...` : "Offline - cannot send"}
-                    disabled={!statusOk || sending}
+                    disabled={!statusOk}
                     rows={3}
                     className={tokens.textarea}
                     onFocus={() => void fetchTools()}
@@ -1660,9 +1681,13 @@ export function App() {
                     </div>
                   ) : null}
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs text-slate-500">Enter to send - Shift+Enter for newline</div>
-                    <button className={[tokens.button, "agentx-send-button min-w-[96px]"].join(" ")} onClick={() => void send()} disabled={!statusOk || sending}>
-                      Send
+                    <div className="text-xs text-slate-500">{sending ? "Enter or Stop to cancel response" : "Enter to send - Shift+Enter for newline"}</div>
+                    <button
+                      className={[sending ? tokens.buttonDanger : tokens.button, "agentx-send-button min-w-[96px]"].join(" ")}
+                      onClick={() => (sending ? stopSending() : void send())}
+                      disabled={!statusOk || (!sending && !draft.trim())}
+                    >
+                      {sending ? "Stop" : "Send"}
                     </button>
                   </div>
                 </div>

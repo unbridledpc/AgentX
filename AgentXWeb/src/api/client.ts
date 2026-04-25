@@ -399,7 +399,8 @@ export async function sendChatMessage(
   threadId?: string,
   responseMode: ResponseMode = "chat",
   unsafeEnabled?: boolean,
-  activeArtifact?: ArtifactContextRequest | null
+  activeArtifact?: ArtifactContextRequest | null,
+  signal?: AbortSignal
 ): Promise<ChatResponse & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null }> {
   const body: Record<string, unknown> = { message };
   if (threadId) body.thread_id = threadId;
@@ -409,7 +410,8 @@ export async function sendChatMessage(
   const res = await fetch(`${config.apiBase}/v1/chat`, {
     method: "POST",
     headers: jsonHeaders(),
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal,
   });
   return handle(res);
 }

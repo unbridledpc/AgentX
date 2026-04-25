@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Thread } from "../api/client";
-import { buildSendFailureMessage, restoreDraftAfterSendFailure, rollbackOptimisticThread } from "./chatSend";
+import { buildSendFailureMessage, isAbortError, restoreDraftAfterSendFailure, restoreDraftAfterStop, rollbackOptimisticThread } from "./chatSend";
 
 function sampleThread(): Thread {
   return {
@@ -30,6 +30,17 @@ describe("chatSend", () => {
   it("restores the original draft only when the user message did not persist", () => {
     expect(restoreDraftAfterSendFailure("hello", false)).toBe("hello");
     expect(restoreDraftAfterSendFailure("hello", true)).toBe("");
+  });
+
+  it("recognizes aborted requests", () => {
+    expect(isAbortError({ name: "AbortError" })).toBe(true);
+    expect(isAbortError(new Error("The operation was aborted"))).toBe(true);
+    expect(isAbortError(new Error("regular failure"))).toBe(false);
+  });
+
+  it("restores the stopped prompt only when the composer is still empty", () => {
+    expect(restoreDraftAfterStop("original", "")).toBe("original");
+    expect(restoreDraftAfterStop("original", "corrected text")).toBe("corrected text");
   });
 
   it("builds truthful failure messages for each failure stage", () => {
