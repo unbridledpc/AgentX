@@ -125,6 +125,177 @@ Python components live primarily under `SolVersion2/` and `apps/api/`. The web U
 
 Verified grounded demo flows are documented in `SolVersion2/docs/reliability-demos.md`.
 
+## Clean Source Repository Guide
+
+The repository should contain source code, manifests, lockfiles, installer scripts, tests, documentation, and checked-in examples only. Generated output and local runtime state should stay out of git.
+
+Canonical source areas:
+
+- `SolVersion2/`: Python runtime package, CLI, tests, default config, built-in plugins, built-in skills
+- `apps/api/`: FastAPI backend service and tests
+- `SolWeb/`: React/Vite web UI source and npm lockfile
+- `apps/desktop/`: Tauri desktop client source, npm lockfile, Rust manifest, and Cargo lockfile
+- `scripts/`: release and maintenance scripts
+- `install.sh`, `install-sol.sh`, `start-sol.ps1`: installer and launcher helpers
+
+Do not commit:
+
+- `node_modules/`, `dist/`, `build/`, Rust `target/`
+- Python caches, pytest caches, virtual environments, egg-info
+- runtime `data/`, `threads/`, logs, audit logs, memory files, SQLite databases, uploaded files
+- `.env` files, tokens, private keys, certificates, or credentials
+
+If a folder is named `data` but contains source documentation, preserve it. For example, `SolVersion2/Server/data/features/` currently contains feature documentation and is intentionally tracked.
+
+## Prerequisites
+
+Recommended development tools:
+
+- Python 3.11 or newer
+- Node.js 20 or newer
+- npm
+- Git
+- Rust and Cargo for desktop/Tauri checks
+- Ollama if testing the local model provider
+
+## Backend And Runtime Setup
+
+Install the Python runtime in editable mode:
+
+```bash
+cd SolVersion2
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip setuptools wheel
+python -m pip install -e ".[developer]"
+```
+
+PowerShell:
+
+```powershell
+cd SolVersion2
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip setuptools wheel
+python -m pip install -e ".[developer]"
+```
+
+Run Python tests from the repository root:
+
+```bash
+PYTHONPATH="$PWD/SolVersion2:$PWD/apps/api" python -m pytest SolVersion2/tests apps/api/tests
+```
+
+PowerShell:
+
+```powershell
+$env:PYTHONPATH = "$PWD\SolVersion2;$PWD\apps\api"
+python -m pytest SolVersion2\tests apps\api\tests
+```
+
+Run the API directly for development:
+
+```bash
+cd apps/api
+python -m pip install -r requirements.txt
+PYTHONPATH="../../SolVersion2:." python -m sol_api --host 127.0.0.1 --port 8420
+```
+
+## Web UI Setup
+
+```bash
+cd SolWeb
+npm ci
+npm run typecheck
+npm run test
+npm run build
+```
+
+The generated `SolWeb/dist/` folder is build output and should not be committed.
+
+Runtime API configuration for the web UI is in:
+
+```text
+SolWeb/public/solweb.config.js
+```
+
+For local development it should point at:
+
+```text
+http://127.0.0.1:8420
+```
+
+## Desktop Setup
+
+```bash
+cd apps/desktop
+npm ci
+npm run build
+cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+For Tauri dev mode:
+
+```bash
+npm run tauri:dev
+```
+
+Generated `apps/desktop/dist/`, `apps/desktop/node_modules/`, and `apps/desktop/src-tauri/target/` are not source files.
+
+## Environment Variables
+
+Use `.env.example` as a safe template for local settings. Do not commit `.env` or real secrets.
+
+Common variables:
+
+- `SOL_API_HOST`, `SOL_API_PORT`
+- `SOL_AUTH_ENABLED`, `SOL_AUTH_USER`, `SOL_AUTH_PASSWORD`, `SOL_AUTH_PASSWORD_SHA256`
+- `SOL_OPENAI_API_KEY`, `SOL_OPENAI_MODEL`, `SOL_OPENAI_BASE_URL`
+- `SOL_OLLAMA_BASE_URL`, `SOL_OLLAMA_REQUEST_TIMEOUT_S`
+- `SOL_RAG_ENABLED`, `SOL_RAG_ALLOWED_ROOTS`
+- `SOL_FS_ENABLED`, `SOL_FS_ALLOWED_ROOTS`, `SOL_FS_WRITE_ENABLED`, `SOL_FS_DELETE_ENABLED`
+- `SOL_WEB_ENABLED`, `SOL_WEB_ALLOWED_HOSTS`
+
+## Runtime Data Locations
+
+The source tree should remain rebuildable without local runtime state.
+
+Recommended runtime locations:
+
+- Linux config: `~/.config/sol/`
+- Linux data: `~/.local/share/sol/`
+- Linux logs: `~/.local/state/sol/logs/`
+- Windows config/data/logs: user AppData locations
+- macOS config/data/logs: user Library locations
+
+The current installer already separates app files from managed runtime files for Linux/WSL installs:
+
+- app bundle: `~/.local/share/nexai/app`
+- launcher: `~/.local/bin/nexai`
+- managed runtime: `~/.local/share/sol`
+
+## Local Cleanup And Reset
+
+To return a checkout to source-only form, remove generated files and reinstall dependencies from lockfiles:
+
+```bash
+git status --short
+```
+
+Safe generated folders to delete locally include:
+
+- `**/node_modules/`
+- `**/dist/`
+- `**/build/`
+- `**/__pycache__/`
+- `**/.pytest_cache/`
+- `**/.venv/`
+- `SolVersion2/data/`
+- `SolVersion2/logs/`
+- `apps/api/sol_api/data/`
+
+After cleanup, rebuild from source using the setup commands above.
+
 ## License
 
 Apache-2.0
