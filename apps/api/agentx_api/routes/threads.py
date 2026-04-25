@@ -24,12 +24,14 @@ class ThreadSummary(BaseModel):
     updated_at: float
     chat_provider: str | None = None
     chat_model: str | None = None
+    project_id: str | None = None
 
 
 class ThreadCreate(BaseModel):
     title: str | None = None
     chat_provider: str | None = None
     chat_model: str | None = None
+    project_id: str | None = None
 
 
 class MessagePayload(BaseModel):
@@ -46,6 +48,10 @@ class ThreadModelPayload(BaseModel):
     chat_model: constr(strip_whitespace=True, min_length=1, max_length=160)
 
 
+class ThreadProjectPayload(BaseModel):
+    project_id: str | None = None
+
+
 class Message(BaseModel):
     id: str
     role: str
@@ -60,6 +66,7 @@ class Thread(BaseModel):
     updated_at: float
     chat_provider: str | None = None
     chat_model: str | None = None
+    project_id: str | None = None
     messages: List[Message] = Field(default_factory=list)
 
 
@@ -174,6 +181,7 @@ def list_threads(http: Request) -> List[ThreadSummary]:
                     updated_at=thread.updated_at,
                     chat_provider=thread.chat_provider,
                     chat_model=thread.chat_model,
+                    project_id=thread.project_id,
                 )
             )
         except Exception:
@@ -197,6 +205,7 @@ def create_thread(body: ThreadCreate, http: Request) -> Thread:
         updated_at=now,
         chat_provider=provider,
         chat_model=model,
+        project_id=(body.project_id or None),
         messages=[],
     )
     _write_thread(thread, owner_id=owner_id)
@@ -253,6 +262,21 @@ def update_thread_model(thread_id: str, http: Request, payload: ThreadModelPaylo
         return thread
     thread.chat_provider = provider
     thread.chat_model = model
+    thread.updated_at = time.time()
+    _write_thread(thread, owner_id=owner_id)
+    return thread
+
+
+@router.post("/threads/{thread_id}/project", response_model=Thread)
+def update_thread_project(thread_id: str, http: Request, payload: ThreadProjectPayload = Body(...)) -> Thread:
+    owner_id = current_user_id(http)
+    if not owner_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    thread = _read_thread(thread_id, owner_id=owner_id)
+    next_project_id = (payload.project_id or "").strip() or None
+    if thread.project_id == next_project_id:
+        return thread
+    thread.project_id = next_project_id
     thread.updated_at = time.time()
     _write_thread(thread, owner_id=owner_id)
     return thread

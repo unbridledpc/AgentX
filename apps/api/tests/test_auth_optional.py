@@ -14,9 +14,15 @@ import agentx_api.routes.settings as settings_route
 def test_local_mode_allows_protected_routes_without_login(monkeypatch, tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
     threads_dir = tmp_path / "threads"
+    projects_dir = tmp_path / "projects"
+    scripts_dir = tmp_path / "scripts"
     threads_dir.mkdir(parents=True, exist_ok=True)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    scripts_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(config, "settings_path", settings_path)
     monkeypatch.setattr(config, "threads_dir", threads_dir)
+    monkeypatch.setattr(config, "projects_dir", projects_dir)
+    monkeypatch.setattr(config, "scripts_dir", scripts_dir)
     monkeypatch.setattr(config, "auth_enabled", False)
     with settings_route._CACHE_LOCK:
         settings_route._CACHED_SETTINGS = None
@@ -45,9 +51,15 @@ def test_local_mode_allows_protected_routes_without_login(monkeypatch, tmp_path:
 def test_login_route_reports_when_auth_is_disabled(monkeypatch, tmp_path: Path) -> None:
     settings_path = tmp_path / "settings.json"
     threads_dir = tmp_path / "threads"
+    projects_dir = tmp_path / "projects"
+    scripts_dir = tmp_path / "scripts"
     threads_dir.mkdir(parents=True, exist_ok=True)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    scripts_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(config, "settings_path", settings_path)
     monkeypatch.setattr(config, "threads_dir", threads_dir)
+    monkeypatch.setattr(config, "projects_dir", projects_dir)
+    monkeypatch.setattr(config, "scripts_dir", scripts_dir)
     monkeypatch.setattr(config, "auth_enabled", False)
     with settings_route._CACHE_LOCK:
         settings_route._CACHED_SETTINGS = None
@@ -85,9 +97,15 @@ def test_cors_allows_runtime_web_origin_alias_from_env(monkeypatch) -> None:
 def _prepare_local_thread_test(monkeypatch, tmp_path: Path) -> TestClient:
     settings_path = tmp_path / "settings.json"
     threads_dir = tmp_path / "threads"
+    projects_dir = tmp_path / "projects"
+    scripts_dir = tmp_path / "scripts"
     threads_dir.mkdir(parents=True, exist_ok=True)
+    projects_dir.mkdir(parents=True, exist_ok=True)
+    scripts_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(config, "settings_path", settings_path)
     monkeypatch.setattr(config, "threads_dir", threads_dir)
+    monkeypatch.setattr(config, "projects_dir", projects_dir)
+    monkeypatch.setattr(config, "scripts_dir", scripts_dir)
     monkeypatch.setattr(config, "auth_enabled", False)
     with settings_route._CACHE_LOCK:
         settings_route._CACHED_SETTINGS = None
@@ -171,3 +189,53 @@ def test_chat_uses_thread_model_instead_of_global_settings(monkeypatch, tmp_path
     assert response.status_code == 200, response.text
     assert captured["provider"] == "ollama"
     assert captured["model"] == "qwen2.5-coder:7b"
+
+
+def test_projects_can_group_threads(monkeypatch, tmp_path: Path) -> None:
+    client = _prepare_local_thread_test(monkeypatch, tmp_path)
+
+    project_response = client.post("/v1/projects", json={"name": "AgentX UI"})
+    assert project_response.status_code == 200, project_response.text
+    project = project_response.json()
+
+    thread_response = client.post("/v1/threads", json={"title": "Project chat", "project_id": project["id"]})
+    assert thread_response.status_code == 200, thread_response.text
+    assert thread_response.json()["project_id"] == project["id"]
+
+    listed = client.get("/v1/threads")
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["project_id"] == project["id"]
+
+    moved = client.post(f"/v1/threads/{thread_response.json()['id']}/project", json={"project_id": None})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["project_id"] is None
+
+
+def test_scripts_can_be_saved_updated_and_listed(monkeypatch, tmp_path: Path) -> None:
+    client = _prepare_local_thread_test(monkeypatch, tmp_path)
+
+    created = client.post(
+        "/v1/scripts",
+        json={
+            "title": "Hello script",
+            "language": "python",
+            "content": "print('hello')",
+            "model_provider": "ollama",
+            "model_name": "qwen2.5-coder:7b",
+            "source_thread_id": "thread-1",
+            "source_message_id": "message-1",
+        },
+    )
+    assert created.status_code == 200, created.text
+    script = created.json()
+    assert script["language"] == "python"
+    assert script["model_name"] == "qwen2.5-coder:7b"
+
+    listed = client.get("/v1/scripts?query=hello")
+    assert listed.status_code == 200, listed.text
+    assert listed.json()[0]["id"] == script["id"]
+
+    updated = client.patch(f"/v1/scripts/{script['id']}", json={"title": "Updated", "content": "print('updated')"})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["title"] == "Updated"
+    assert updated.json()["content"] == "print('updated')"

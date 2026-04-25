@@ -19,6 +19,8 @@ from agentx_api.auth import require_api_auth
 from agentx_api.routes.auth import router as auth_router
 from agentx_api.config import config
 from agentx_api.routes.chat import router as chat_router
+from agentx_api.routes.projects import router as projects_router
+from agentx_api.routes.scripts import router as scripts_router
 from agentx_api.routes.fs import router as fs_router
 from agentx_api.routes.rag import router as rag_router
 from agentx_api.routes.agentx import router as agentx_router
@@ -89,6 +91,8 @@ def create_app() -> FastAPI:
     app.include_router(chat_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(settings_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(threads_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
+    app.include_router(projects_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
+    app.include_router(scripts_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(unsafe_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(rag_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(fs_router, prefix="/v1", dependencies=[Depends(require_api_auth)])

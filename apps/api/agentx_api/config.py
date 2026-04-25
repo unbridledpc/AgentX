@@ -32,6 +32,8 @@ class ApiConfig:
     port: int
     settings_path: Path
     threads_dir: Path
+    projects_dir: Path
+    scripts_dir: Path
     openai_api_key: str | None
     openai_model: str
     openai_timeout_s: float
@@ -77,6 +79,10 @@ class ApiConfig:
         self.settings_path = data_dir / "settings.json"
         self.threads_dir = data_dir / "threads"
         self.threads_dir.mkdir(parents=True, exist_ok=True)
+        self.projects_dir = data_dir / "projects"
+        self.projects_dir.mkdir(parents=True, exist_ok=True)
+        self.scripts_dir = data_dir / "scripts"
+        self.scripts_dir.mkdir(parents=True, exist_ok=True)
         self.thread_title_max = int(_env("AGENTX_THREAD_TITLE_MAX", "64") or "64")
         self.auth_enabled = self._load_auth_enabled()
         self.auth_session_ttl_s = max(300, int(_env("AGENTX_AUTH_SESSION_TTL_S", "604800") or "604800"))

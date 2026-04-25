@@ -13,16 +13,25 @@ import {
   getUnsafeMode,
   RetrievedChunk,
   listThreads,
+  listProjects,
+  listScripts,
+  createProject as createProjectRecord,
+  createScript,
+  updateScript,
+  deleteScript,
   saveSettings,
   sendChatMessage,
   deleteThread,
   updateThreadTitle,
   updateThreadModel,
+  updateThreadProject,
   Thread,
   ThreadSummary,
   UnsafeStatusResponse,
   ApiError,
   normalizeLayoutSettings,
+  type ProjectRecord,
+  type ScriptRecord,
   type ProviderErrorDetail,
   type AgentXSettings,
 } from "../api/client";
@@ -32,7 +41,6 @@ import { ScrollArea } from "./components/ScrollArea";
 import { StatusPill } from "./components/StatusPill";
 import { ThreadList } from "./components/ThreadList";
 import { tokens } from "./tokens";
-import { useProjects } from "./components/Projects";
 import { SettingsPage } from "./pages/SettingsPage";
 import { CustomizationPage } from "./pages/CustomizationPage";
 import { clearAuth, loadAuth, logout, tryLogin, type AuthState } from "./auth";
@@ -43,7 +51,7 @@ import { createClientId } from "./clientId";
 import { AgentXDropdown, type AgentXDropdownOption } from "./components/AgentXDropdown";
 import { theme } from "./theme";
 import { CodeCanvas } from "./components/CodeCanvas";
-import { defaultCodeCanvasState, detectCodeCanvas, loadCodeCanvasState, saveCodeCanvasState, type CodeCanvasState } from "./codeCanvas";
+import { defaultCodeCanvasState, detectCodeCanvas, languageLabel, loadCodeCanvasState, normalizeCodeCanvasLanguage, saveCodeCanvasState, type CodeCanvasState } from "./codeCanvas";
 import { applyPendingLayoutToSettings, clearPendingLayoutSave, loadPendingLayoutSave, pendingLayoutChangedEventName } from "./layoutPersistence";
 import { buildSendFailureMessage, isAbortError, restoreDraftAfterSendFailure, restoreDraftAfterStop, rollbackOptimisticThread } from "./chatSend";
 
@@ -132,13 +140,14 @@ function threadSummary(thread: Thread): ThreadSummary {
     updated_at: thread.updated_at,
     chat_provider: thread.chat_provider,
     chat_model: thread.chat_model,
+    project_id: thread.project_id,
   };
 }
 
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(() => loadAuth());
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
-  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts">("chat");
   const [loginUser, setLoginUser] = useState("agentx");
   const [loginPass, setLoginPass] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
@@ -181,8 +190,14 @@ export function App() {
   >(null);
   const [unsafeStatus, setUnsafeStatus] = useState<UnsafeStatusResponse | null>(null);
   const [codeCanvas, setCodeCanvas] = useState<CodeCanvasState>(() => defaultCodeCanvasState());
-  const { projects, activeProjectId, activeProject, setActiveProjectId, createProject } = useProjects();
-  const threadProjectMapRef = useRef<Record<string, string>>({});
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const activeProject = useMemo(() => projects.find((project) => project.id === activeProjectId) ?? null, [activeProjectId, projects]);
+  const [scripts, setScripts] = useState<ScriptRecord[]>([]);
+  const [scriptQuery, setScriptQuery] = useState("");
+  const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
+  const activeScript = useMemo(() => scripts.find((script) => script.id === activeScriptId) ?? scripts[0] ?? null, [activeScriptId, scripts]);
+  const [scriptDraft, setScriptDraft] = useState<{ title: string; content: string; language: string }>({ title: "", content: "", language: "text" });
 
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -224,14 +239,6 @@ export function App() {
   const onAfterNavAction = useCallback(() => {
     if (isMobile) setNavOpen(false);
   }, [isMobile]);
-
-  useEffect(() => {
-    try {
-      threadProjectMapRef.current = JSON.parse(localStorage.getItem(config.threadProjectMapKey) ?? "{}");
-    } catch {
-      threadProjectMapRef.current = {};
-    }
-  }, []);
 
   useEffect(() => {
     setCodeCanvas(loadCodeCanvasState());
@@ -294,14 +301,9 @@ export function App() {
     };
   }, [activeThread?.id, sessionReady]);
 
-  const persistThreadProjectMap = useCallback(() => {
-    localStorage.setItem(config.threadProjectMapKey, JSON.stringify(threadProjectMapRef.current));
-  }, []);
-
   const visibleThreads = useMemo(() => {
     if (!activeProjectId) return threads;
-    const map = threadProjectMapRef.current;
-    return threads.filter((t) => map[t.id] === activeProjectId);
+    return threads.filter((t) => t.project_id === activeProjectId);
   }, [activeProjectId, threads]);
 
   const modelOptions = useMemo(() => {
@@ -487,6 +489,54 @@ export function App() {
     };
   }, [sessionReady, statusOk]);
 
+
+  useEffect(() => {
+    if (!statusOk || !sessionReady) {
+      if (!sessionReady) setProjects([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await listProjects();
+        if (!cancelled) setProjects(list);
+      } catch (e) {
+        if (!cancelled) console.error("Failed to load projects", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionReady, statusOk]);
+
+  useEffect(() => {
+    if (!statusOk || !sessionReady) {
+      if (!sessionReady) setScripts([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await listScripts({ query: scriptQuery });
+        if (!cancelled) setScripts(list);
+      } catch (e) {
+        if (!cancelled) console.error("Failed to load scripts", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scriptQuery, sessionReady, statusOk]);
+
+  useEffect(() => {
+    if (!activeScript) {
+      setScriptDraft({ title: "", content: "", language: "text" });
+      return;
+    }
+    setActiveScriptId((current) => current ?? activeScript.id);
+    setScriptDraft({ title: activeScript.title, content: activeScript.content, language: activeScript.language });
+  }, [activeScript?.id]);
+
   useEffect(() => {
     const onAuthInvalid = () => {
       if (authEnabled === false) {
@@ -600,6 +650,138 @@ export function App() {
     [activeThread?.id, modelOptions.openai, modelOptions.ollama, ollamaBaseUrl, setSystemMessage, statusOk]
   );
 
+  const createProject = useCallback(async () => {
+    if (!statusOk) {
+      setSystemMessage("Offline - cannot create projects until the API is reachable.");
+      return;
+    }
+    const name = (window.prompt("Project name?") ?? "").trim();
+    if (!name) return;
+    try {
+      const project = await createProjectRecord(name);
+      setProjects((prev) => [project, ...prev.filter((item) => item.id !== project.id)]);
+      setActiveProjectId(project.id);
+      setActiveView("chat");
+      onAfterNavAction();
+    } catch (e) {
+      console.error("Failed to create project", e);
+      setSystemMessage("Project create failed.");
+    }
+  }, [onAfterNavAction, setSystemMessage, statusOk]);
+
+  const assignActiveThreadToProject = useCallback(async (projectId: string | null) => {
+    if (!activeThread?.id) {
+      setSystemMessage("Open a chat first, then assign it to a project.");
+      return;
+    }
+    try {
+      const updated = await updateThreadProject(activeThread.id, projectId);
+      setActiveThread(updated);
+      setThreads((prev) => [threadSummary(updated), ...prev.filter((thread) => thread.id !== updated.id)]);
+    } catch (e) {
+      console.error("Failed to assign project", e);
+      setSystemMessage("Failed to assign this chat to the project.");
+    }
+  }, [activeThread?.id, setSystemMessage]);
+
+  const upsertScriptState = useCallback((script: ScriptRecord) => {
+    setScripts((prev) => [script, ...prev.filter((item) => item.id !== script.id)]);
+    setActiveScriptId(script.id);
+  }, []);
+
+  const saveGeneratedScript = useCallback(async (payload: { title: string; language: string; content: string; sourceThreadId?: string | null; sourceMessageId?: string | null }) => {
+    try {
+      const script = await createScript({
+        title: payload.title,
+        language: payload.language,
+        content: payload.content,
+        model_provider: chatProvider,
+        model_name: chatModel,
+        source_thread_id: payload.sourceThreadId ?? null,
+        source_message_id: payload.sourceMessageId ?? null,
+        tags: [payload.language, chatProvider, chatModel].filter(Boolean),
+      });
+      upsertScriptState(script);
+    } catch (e) {
+      console.error("Failed to save generated script", e);
+    }
+  }, [chatModel, chatProvider, upsertScriptState]);
+
+  const openScriptInCanvas = useCallback((script: ScriptRecord) => {
+    const language = normalizeCodeCanvasLanguage(script.language);
+    setCodeCanvas((prev) => ({
+      ...prev,
+      isOpen: true,
+      content: script.content,
+      language,
+      title: script.title,
+      isDirty: false,
+      sourceMessageId: script.source_message_id ?? script.id,
+      viewMode: prev.viewMode === "fullscreen" ? "fullscreen" : "docked",
+      sources: {
+        ...prev.sources,
+        [script.source_message_id ?? script.id]: {
+          content: script.content,
+          language,
+          title: script.title,
+        },
+      },
+    }));
+    setActiveView("chat");
+  }, []);
+
+  const insertScriptIntoChat = useCallback((script: ScriptRecord) => {
+    setDraft((prev) => `${prev ? `${prev.trimEnd()}
+
+` : ""}Here is ${script.title}:
+
+\`\`\`${script.language}
+${script.content}
+\`\`\``);
+    setActiveView("chat");
+    scheduleComposerFocus({ force: true });
+  }, [scheduleComposerFocus]);
+
+  const exportScriptFile = useCallback((script: ScriptRecord) => {
+    const blob = new Blob([script.content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filenameForScript(script);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const saveScriptEdits = useCallback(async () => {
+    if (!activeScript) return;
+    try {
+      const updated = await updateScript(activeScript.id, {
+        title: scriptDraft.title.trim() || activeScript.title,
+        language: scriptDraft.language.trim() || activeScript.language,
+        content: scriptDraft.content,
+      });
+      upsertScriptState(updated);
+      setSystemMessage("Script saved.");
+    } catch (e) {
+      console.error("Failed to save script", e);
+      setSystemMessage("Script save failed.");
+    }
+  }, [activeScript, scriptDraft.content, scriptDraft.language, scriptDraft.title, setSystemMessage, upsertScriptState]);
+
+  const removeScript = useCallback(async (script: ScriptRecord) => {
+    if (!window.confirm(`Delete script '${script.title}'?`)) return;
+    try {
+      await deleteScript(script.id);
+      setScripts((prev) => prev.filter((item) => item.id !== script.id));
+      setActiveScriptId((current) => current === script.id ? null : current);
+    } catch (e) {
+      console.error("Failed to delete script", e);
+      setSystemMessage("Script delete failed.");
+    }
+  }, [setSystemMessage]);
+
   const selectThread = useCallback(async (id: string) => {
     if (!statusOk) return;
     const thread = await getThread(id);
@@ -613,19 +795,15 @@ export function App() {
 
   const newChat = useCallback(async () => {
     if (!statusOk) return;
-    const t = await createThread(undefined, { chatProvider, chatModel });
+    const t = await createThread(undefined, { chatProvider, chatModel, projectId: activeProjectId });
     setActiveThread(t);
     const selection = threadSelection(t, { provider: chatProvider, model: chatModel });
     setChatProvider(selection.provider);
     setChatModel(selection.model);
     setThreads((prev) => [threadSummary(t), ...prev.filter((x) => x.id !== t.id)]);
-    if (activeProjectId) {
-      threadProjectMapRef.current[t.id] = activeProjectId;
-      persistThreadProjectMap();
-    }
     onAfterNavAction();
     scheduleComposerFocus({ force: true });
-  }, [activeProjectId, chatModel, chatProvider, onAfterNavAction, persistThreadProjectMap, scheduleComposerFocus, statusOk]);
+  }, [activeProjectId, chatModel, chatProvider, onAfterNavAction, scheduleComposerFocus, statusOk]);
 
   const deleteChat = useCallback(
     async (threadId: string) => {
@@ -637,14 +815,12 @@ export function App() {
         await deleteThread(threadId);
         setThreads((prev) => prev.filter((t) => t.id !== threadId));
         setActiveThread((prev) => (prev?.id === threadId ? null : prev));
-        delete threadProjectMapRef.current[threadId];
-        persistThreadProjectMap();
       } catch (e) {
         console.error("Failed to delete thread", e);
         setSystemMessage("Thread delete failed.");
       }
     },
-    [persistThreadProjectMap, setSystemMessage, statusOk]
+    [setSystemMessage, statusOk]
   );
 
   const renameChat = useCallback(
@@ -843,13 +1019,9 @@ export function App() {
 
     let thread = activeThread;
     if (!thread) {
-      thread = await createThread(undefined, { chatProvider, chatModel });
+      thread = await createThread(undefined, { chatProvider, chatModel, projectId: activeProjectId });
       setActiveThread(thread);
       setThreads((prev) => [threadSummary(thread!), ...prev]);
-      if (activeProjectId) {
-        threadProjectMapRef.current[thread.id] = activeProjectId;
-        persistThreadProjectMap();
-      }
     }
 
     const wasEmpty = thread.messages.length === 0;
@@ -920,6 +1092,13 @@ export function App() {
           companion: canvasDetection.companion,
           shouldOpen: layoutSettings.showCodeCanvas,
         });
+        void saveGeneratedScript({
+          title: canvasDetection.title,
+          language: canvasDetection.language,
+          content: canvasDetection.code,
+          sourceThreadId: t3.id,
+          sourceMessageId: assistantMessage.id,
+        });
       }
     } catch (e) {
       if (isAbortError(e)) {
@@ -950,7 +1129,7 @@ export function App() {
     modelOptions.ollama,
     layoutSettings.showCodeCanvas,
     openCodeCanvasFromReply,
-    persistThreadProjectMap,
+    saveGeneratedScript,
     scheduleComposerFocus,
     sending,
     setSystemMessage,
@@ -1145,6 +1324,115 @@ export function App() {
     setThreads([]);
   }, [auth]);
 
+  const renderScriptsView = () => {
+    const languages = Array.from(new Set(scripts.map((script) => script.language).filter(Boolean))).sort();
+    return (
+      <div className="mt-3 grid min-h-0 flex-1 gap-3 overflow-hidden lg:grid-cols-[340px_1fr]">
+        <Panel className="flex min-h-0 flex-col gap-3 p-4">
+          <div>
+            <div className={tokens.smallLabel}>Scripts Library</div>
+            <div className="mt-1 text-sm text-slate-400">Every generated code artifact AgentX saves for later reuse.</div>
+          </div>
+          <input
+            className={tokens.input}
+            value={scriptQuery}
+            onChange={(event) => setScriptQuery(event.target.value)}
+            placeholder="Search scripts, model, language, or content..."
+          />
+          <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+            <span>{scripts.length} saved</span>
+            {languages.slice(0, 6).map((language) => (
+              <span key={language} className="agentx-pill px-2 py-1">{languageLabel(language)}</span>
+            ))}
+          </div>
+          <ScrollArea className="min-h-0 flex-1 pr-1">
+            <div className="space-y-2">
+              {scripts.length === 0 ? (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-400">
+                  No scripts saved yet. Ask AgentX to create code and it will appear here automatically.
+                </div>
+              ) : (
+                scripts.map((script) => (
+                  <button
+                    key={script.id}
+                    type="button"
+                    className={[
+                      "w-full rounded-2xl border p-3 text-left transition",
+                      activeScript?.id === script.id
+                        ? "border-cyan-400/35 bg-slate-900/90 text-cyan-50 shadow-[0_14px_30px_rgba(8,145,178,0.16)]"
+                        : "border-slate-800 bg-slate-950/75 text-slate-200 hover:border-cyan-400/25 hover:bg-slate-900/75",
+                    ].join(" ")}
+                    onClick={() => setActiveScriptId(script.id)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold">{script.title}</span>
+                      <span className="agentx-pill px-2 py-1 text-[10px]">{languageLabel(script.language)}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                      <span>{scriptModelLabel(script)}</span>
+                      <span>{scriptTimestamp(script.created_at)}</span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </Panel>
+
+        <Panel className="flex min-h-0 flex-col gap-3 p-4">
+          {activeScript ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={tokens.smallLabel}>Script Details</div>
+                  <div className="mt-1 text-sm text-slate-400">
+                    {languageLabel(activeScript.language)} · {scriptModelLabel(activeScript)} · {scriptTimestamp(activeScript.created_at)}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button className={tokens.buttonUtility} type="button" onClick={() => navigator.clipboard.writeText(activeScript.content)}>Copy</button>
+                  <button className={tokens.buttonUtility} type="button" onClick={() => exportScriptFile(activeScript)}>Export</button>
+                  <button className={tokens.buttonUtility} type="button" onClick={() => insertScriptIntoChat(activeScript)}>Insert into chat</button>
+                  <button className={tokens.buttonUtility} type="button" onClick={() => openScriptInCanvas(activeScript)}>Open canvas</button>
+                  <button className={tokens.buttonDanger} type="button" onClick={() => void removeScript(activeScript)}>Delete</button>
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+                <label className="grid gap-1 text-sm">
+                  <span className={tokens.smallLabel}>Title</span>
+                  <input className={tokens.input} value={scriptDraft.title} onChange={(event) => setScriptDraft((prev) => ({ ...prev, title: event.target.value }))} />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className={tokens.smallLabel}>Language</span>
+                  <input className={tokens.input} value={scriptDraft.language} onChange={(event) => setScriptDraft((prev) => ({ ...prev, language: event.target.value }))} />
+                </label>
+              </div>
+              <textarea
+                className={[tokens.textarea, "min-h-[420px] flex-1 font-mono text-xs leading-5"].join(" ")}
+                value={scriptDraft.content}
+                onChange={(event) => setScriptDraft((prev) => ({ ...prev, content: event.target.value }))}
+                spellCheck={false}
+              />
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs text-slate-500">
+                  Source chat: {activeScript.source_thread_id ? activeScript.source_thread_id.slice(0, 8) : "unknown"}
+                  {activeScript.updated_at !== activeScript.created_at ? ` · Edited ${scriptTimestamp(activeScript.updated_at)}` : ""}
+                </div>
+                <button className={tokens.button} type="button" onClick={() => void saveScriptEdits()} disabled={!scriptDraft.content.trim() || !scriptDraft.title.trim()}>
+                  Save script
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex min-h-[360px] items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-950/50 p-8 text-center text-sm text-slate-400">
+              Select a script from the library, or ask AgentX to generate code.
+            </div>
+          )}
+        </Panel>
+      </div>
+    );
+  };
+
   const renderSidebar = (variant: "desktop" | "overlay") => {
     const headerRight =
       variant === "overlay" ? (
@@ -1212,6 +1500,17 @@ export function App() {
                       }}
                     >
                       <span className="truncate">{p.name}</span>
+                      {activeThread?.project_id !== p.id ? (
+                        <span
+                          className="mt-1 block text-[10px] text-slate-500"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void assignActiveThreadToProject(p.id);
+                          }}
+                        >
+                          Assign active chat
+                        </span>
+                      ) : null}
                     </button>
                   ))
                 )}
@@ -1263,6 +1562,19 @@ export function App() {
               title="Open chats"
             >
               ☰ Chats
+            </button>
+            <button
+              className={[
+                "w-full rounded-xl border px-3 py-2 text-left text-sm font-medium transition",
+                activeView === "scripts" ? "border-cyan-400/30 bg-slate-900 text-cyan-50" : "border-slate-800 bg-slate-950/70 text-slate-200 hover:bg-slate-900/80",
+              ].join(" ")}
+              onClick={() => {
+                setActiveView("scripts");
+                onAfterNavAction();
+              }}
+              title="Open saved scripts"
+            >
+              ◇ Scripts {scripts.length ? <span className="text-xs text-slate-500">({scripts.length})</span> : null}
             </button>
             <button
               className={[
@@ -1443,15 +1755,19 @@ export function App() {
                     <div className={theme.copy.title}>
                       {activeView === "settings" || activeView === "customization"
                         ? "Settings"
-                        : activeThread
-                          ? activeThread.title || config.threadTitleDefault
-                          : "Chat"}
+                        : activeView === "scripts"
+                          ? "Scripts"
+                          : activeThread
+                            ? activeThread.title || config.threadTitleDefault
+                            : "Chat"}
                       {activeProject ? <span className="text-xs font-normal text-slate-500">{` - ${activeProject.name}`}</span> : null}
                     </div>
                     <div className={theme.copy.muted}>
                       {activeView === "settings" || activeView === "customization"
                         ? "Provider, appearance, layout, and local behavior."
-                        : `Direct channel into ${assistantDisplayName}.`}
+                        : activeView === "scripts"
+                          ? "Saved code artifacts from every AgentX generation."
+                          : `Direct channel into ${assistantDisplayName}.`}
                     </div>
                   </div>
                 </div>
@@ -1462,7 +1778,7 @@ export function App() {
               <button
                 className={tokens.buttonSecondary}
                 type="button"
-                onClick={() => setActiveView(activeView === "settings" ? "chat" : "settings")}
+                onClick={() => setActiveView(activeView === "settings" || activeView === "customization" ? "chat" : "settings")}
                 title="Settings and customization"
               >
                 ⋯
@@ -1533,6 +1849,8 @@ export function App() {
                 onSystemMessage={setSystemMessage}
               />
             </div>
+          ) : activeView === "scripts" ? (
+            renderScriptsView()
           ) : (
             <div className={["mt-3 flex min-h-0 flex-1 gap-3", codeCanvas.isOpen ? "agentx-chat-with-canvas" : ""].join(" ")}>
               <div className={["flex min-h-0 flex-1 flex-col", codeCanvas.isOpen && codeCanvas.viewMode === "fullscreen" ? "agentx-chat-pane--hidden" : ""].join(" ")}>

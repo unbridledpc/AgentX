@@ -190,7 +190,7 @@ export type ArtifactContextRequest = {
 };
 export type WebPolicySessionResponse = { ok: boolean; ts: number; audit_tail: AuditEntry[] };
 
-export type ThreadSummary = { id: string; title: string; updated_at: number; chat_provider?: string | null; chat_model?: string | null };
+export type ThreadSummary = { id: string; title: string; updated_at: number; chat_provider?: string | null; chat_model?: string | null; project_id?: string | null };
 export type Message = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -204,7 +204,31 @@ export type Thread = {
   updated_at: number;
   chat_provider?: string | null;
   chat_model?: string | null;
+  project_id?: string | null;
   messages: Message[];
+};
+
+
+export type ProjectRecord = {
+  id: string;
+  name: string;
+  description: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type ScriptRecord = {
+  id: string;
+  title: string;
+  language: string;
+  content: string;
+  model_provider?: string | null;
+  model_name?: string | null;
+  source_thread_id?: string | null;
+  source_message_id?: string | null;
+  created_at: number;
+  updated_at: number;
+  tags: string[];
 };
 
 export type LayoutSettings = {
@@ -502,7 +526,7 @@ export async function listThreads(): Promise<ThreadSummary[]> {
   return handle(res);
 }
 
-export async function createThread(title?: string, modelSelection?: { chatProvider?: string; chatModel?: string }): Promise<Thread> {
+export async function createThread(title?: string, modelSelection?: { chatProvider?: string; chatModel?: string; projectId?: string | null }): Promise<Thread> {
   const res = await fetch(`${config.apiBase}/v1/threads`, {
     method: "POST",
     headers: jsonHeaders(),
@@ -510,6 +534,7 @@ export async function createThread(title?: string, modelSelection?: { chatProvid
       title,
       chat_provider: modelSelection?.chatProvider,
       chat_model: modelSelection?.chatModel,
+      project_id: modelSelection?.projectId ?? null,
     })
   });
   return handle(res);
@@ -547,6 +572,87 @@ export async function updateThreadModel(threadId: string, chatProvider: string, 
     headers: jsonHeaders(),
     body: JSON.stringify({ chat_provider: chatProvider, chat_model: chatModel })
   });
+  return handle(res);
+}
+
+
+export async function updateThreadProject(threadId: string, projectId: string | null): Promise<Thread> {
+  const res = await fetch(`${config.apiBase}/v1/threads/${threadId}/project`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ project_id: projectId })
+  });
+  return handle(res);
+}
+
+export async function listProjects(): Promise<ProjectRecord[]> {
+  const res = await fetch(`${config.apiBase}/v1/projects`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function createProject(name: string, description = ""): Promise<ProjectRecord> {
+  const res = await fetch(`${config.apiBase}/v1/projects`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ name, description })
+  });
+  return handle(res);
+}
+
+export async function updateProject(projectId: string, payload: { name?: string; description?: string }): Promise<ProjectRecord> {
+  const res = await fetch(`${config.apiBase}/v1/projects/${projectId}`, {
+    method: "PATCH",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload)
+  });
+  return handle(res);
+}
+
+export async function deleteProject(projectId: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${config.apiBase}/v1/projects/${projectId}`, { method: "DELETE", headers: authHeaders() });
+  return handle(res);
+}
+
+export async function listScripts(params: { query?: string; language?: string; model?: string; threadId?: string } = {}): Promise<ScriptRecord[]> {
+  const search = new URLSearchParams();
+  if (params.query) search.set("query", params.query);
+  if (params.language) search.set("language", params.language);
+  if (params.model) search.set("model", params.model);
+  if (params.threadId) search.set("thread_id", params.threadId);
+  const qs = search.toString();
+  const res = await fetch(`${config.apiBase}/v1/scripts${qs ? `?${qs}` : ""}`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function createScript(payload: {
+  title: string;
+  language: string;
+  content: string;
+  model_provider?: string | null;
+  model_name?: string | null;
+  source_thread_id?: string | null;
+  source_message_id?: string | null;
+  tags?: string[];
+}): Promise<ScriptRecord> {
+  const res = await fetch(`${config.apiBase}/v1/scripts`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload)
+  });
+  return handle(res);
+}
+
+export async function updateScript(scriptId: string, payload: { title?: string; language?: string; content?: string; tags?: string[] }): Promise<ScriptRecord> {
+  const res = await fetch(`${config.apiBase}/v1/scripts/${scriptId}`, {
+    method: "PATCH",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload)
+  });
+  return handle(res);
+}
+
+export async function deleteScript(scriptId: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${config.apiBase}/v1/scripts/${scriptId}`, { method: "DELETE", headers: authHeaders() });
   return handle(res);
 }
 
