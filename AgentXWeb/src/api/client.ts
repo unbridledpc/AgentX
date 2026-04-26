@@ -244,6 +244,17 @@ export type LayoutSettings = {
   showCodeCanvas?: boolean;
 };
 
+export type ModelBehaviorSettings = {
+  enabled?: boolean;
+  codingContractEnabled?: boolean;
+  requireFencedCode?: boolean;
+  preferStandardLibrary?: boolean;
+  windowsAwareExamples?: boolean;
+  autoRepairEnabled?: boolean;
+  globalInstructions?: string;
+  codingContract?: string;
+};
+
 export const DEFAULT_LAYOUT_SETTINGS: Required<LayoutSettings> = {
   showSidebar: true,
   showInspector: true,
@@ -251,10 +262,41 @@ export const DEFAULT_LAYOUT_SETTINGS: Required<LayoutSettings> = {
   showCodeCanvas: true,
 };
 
+export const DEFAULT_MODEL_BEHAVIOR_SETTINGS: Required<ModelBehaviorSettings> = {
+  enabled: true,
+  codingContractEnabled: true,
+  requireFencedCode: true,
+  preferStandardLibrary: true,
+  windowsAwareExamples: true,
+  autoRepairEnabled: false,
+  globalInstructions: `You are AgentX. Answer directly and helpfully.
+Do not invent fake USER/ASSISTANT dialogue.
+When the user asks for a file, export, report, or script, make sure the output actually implements that request.`,
+  codingContract: `When writing code:
+- Provide complete, runnable code.
+- Use proper fenced code blocks with the language name.
+- Do not write "Copy code."
+- Preserve indentation exactly.
+- Prefer the standard library unless the user asks for dependencies.
+- For CLI scripts, prefer argparse.
+- Validate user-provided paths and inputs.
+- Handle PermissionError and OSError where file access is involved.
+- If the user asks for CSV/export/report/file output, the code must implement that output.
+- Include a short run example, using Windows paths when the user appears to be on Windows.
+- Do not invent fake USER/ASSISTANT dialogue.`,
+};
+
 export function normalizeLayoutSettings(layout?: LayoutSettings | null): Required<LayoutSettings> {
   return {
     ...DEFAULT_LAYOUT_SETTINGS,
     ...(layout ?? {}),
+  };
+}
+
+export function normalizeModelBehaviorSettings(modelBehavior?: ModelBehaviorSettings | null): Required<ModelBehaviorSettings> {
+  return {
+    ...DEFAULT_MODEL_BEHAVIOR_SETTINGS,
+    ...(modelBehavior ?? {}),
   };
 }
 
@@ -272,6 +314,7 @@ export type AgentXSettings = {
   accentIntensity?: "soft" | "balanced" | "vivid";
   densityMode?: "compact" | "comfortable" | "airy";
   layout?: LayoutSettings;
+  modelBehavior?: ModelBehaviorSettings;
 };
 
 export const DEFAULT_AGENTX_SETTINGS: Required<AgentXSettings> = {
@@ -288,6 +331,7 @@ export const DEFAULT_AGENTX_SETTINGS: Required<AgentXSettings> = {
   accentIntensity: "balanced",
   densityMode: "comfortable",
   layout: DEFAULT_LAYOUT_SETTINGS,
+  modelBehavior: DEFAULT_MODEL_BEHAVIOR_SETTINGS,
 };
 
 export type ProviderErrorDetail = {

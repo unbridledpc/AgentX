@@ -341,6 +341,9 @@ class Agent:
             cfg = load_ollama_cfg(self.ctx.cfg.llm)
             cfg = cfg.__class__(base_url=cfg.base_url, model=mdl, timeout_s=cfg.timeout_s, max_tool_iters=cfg.max_tool_iters)
             prompt_parts: list[str] = ["You are AgentX. Answer calmly and directly."]
+            behavior_contract = str(getattr(self.ctx, "request_model_behavior_contract", "") or "").strip()
+            if behavior_contract:
+                prompt_parts[0] += "\n\n" + behavior_contract
             if mode == "spoken":
                 prompt_parts[0] += " Spoken mode: answer directly, keep it short, sound natural when read aloud, do not include hidden reasoning, no markdown, and no bullet lists unless the user explicitly asks for them."
             if retrieval_context:
@@ -362,6 +365,9 @@ class Agent:
                 max_tool_iters=cfg.max_tool_iters,
             )
             system = "You are AgentX. Answer calmly and directly."
+            behavior_contract = str(getattr(self.ctx, "request_model_behavior_contract", "") or "").strip()
+            if behavior_contract:
+                system += "\n\n" + behavior_contract
             if mode == "spoken":
                 system += " Spoken mode: answer directly, keep it short, sound natural when read aloud, do not include hidden reasoning, no markdown, and no bullet lists unless the user explicitly asks for them."
             messages: list[dict[str, Any]] = [{"role": "system", "content": system}]

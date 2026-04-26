@@ -399,8 +399,9 @@ def _ollama_chat_with_tools(*, short_term: list[dict], retrieved: str, user_mess
         "After the tool result, continue and either call another tool or answer normally.",
         "Never write to drive C: (read-only). Prefer non-C drives.",
     ]
-    if _looks_like_coding_request(user_message):
-        system_lines.append(_coding_output_contract())
+    behavior_contract = _model_behavior_contract(user_message)
+    if behavior_contract:
+        system_lines.append(behavior_contract)
     if not config.fs_enabled:
         system_lines.append("File tools are disabled (AGENTX_FS_ENABLED=false).")
     if not config.fs_write_enabled:
@@ -806,9 +807,28 @@ def _looks_like_coding_request(text: str) -> bool:
     return bool(_CODING_INTENT_RE.search(cleaned))
 
 
+def _behavior_flag(behavior: object, name: str, default: bool = True) -> bool:
+    try:
+        return bool(getattr(behavior, name, default))
+    except Exception:
+        return default
+
+
+def _behavior_text(behavior: object, name: str, default: str = "") -> str:
+    try:
+        return str(getattr(behavior, name, default) or "").strip()
+    except Exception:
+        return default.strip()
+
+
 def _coding_output_contract() -> str:
-    return "\n".join(
-        [
+    settings = _read_settings()
+    behavior = getattr(settings, "modelBehavior", None)
+    custom = _behavior_text(behavior, "codingContract", "")
+    if custom:
+        lines = ["Coding output contract:", custom]
+    else:
+        lines = [
             "Coding output contract:",
             "- When the user asks for code, return complete, runnable code in one proper fenced code block such as ```python ... ```.",
             "- Never write literal labels like 'Copy code' or fake USER/ASSISTANT transcript lines.",
@@ -818,13 +838,35 @@ def _coding_output_contract() -> str:
             "- Include Windows-friendly run examples when paths or commands matter.",
             "- Keep explanations brief and place them outside the fenced code block.",
         ]
-    )
+    if behavior is not None:
+        if _behavior_flag(behavior, "requireFencedCode", True):
+            lines.append("- Required: use fenced code blocks with the language name for code.")
+        if _behavior_flag(behavior, "preferStandardLibrary", True):
+            lines.append("- Required: prefer the standard library unless the user asks for dependencies.")
+        if _behavior_flag(behavior, "windowsAwareExamples", True):
+            lines.append("- Required: include Windows-friendly run examples when commands or paths matter.")
+    return "\n".join(lines)
+
+
+def _model_behavior_contract(user_message: str) -> str:
+    settings = _read_settings()
+    behavior = getattr(settings, "modelBehavior", None)
+    if behavior is None or not _behavior_flag(behavior, "enabled", True):
+        return ""
+    parts: list[str] = []
+    global_instructions = _behavior_text(behavior, "globalInstructions", "")
+    if global_instructions:
+        parts.append("Global model behavior contract:\n" + global_instructions)
+    if _looks_like_coding_request(user_message) and _behavior_flag(behavior, "codingContractEnabled", True):
+        parts.append(_coding_output_contract())
+    return "\n\n".join(part for part in parts if part.strip())
 
 
 def _system_prompt_for_request(response_mode: str, user_message: str) -> str:
     system_prompt = "You are AgentX. Answer directly and helpfully."
-    if _looks_like_coding_request(user_message):
-        system_prompt += "\n\n" + _coding_output_contract()
+    behavior_contract = _model_behavior_contract(user_message)
+    if behavior_contract:
+        system_prompt += "\n\n" + behavior_contract
     if (response_mode or "chat").strip().lower() == "spoken":
         system_prompt += (
             " Spoken mode: answer directly, keep it short, sound natural when read aloud,"
@@ -996,6 +1038,7 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
                     else None
                 ),
             )
+            setattr(agent_ctx, "request_model_behavior_contract", _model_behavior_contract(request.message))
         tokens = set_request_context(thread_id=effective_thread_id, user=effective_user, unsafe_enabled=request_unsafe_enabled)
         handle_cfg = getattr(h, "cfg", None)
         if provider == "ollama" and isinstance(getattr(handle_cfg, "llm", None), dict):
