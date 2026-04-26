@@ -1,5 +1,28 @@
 import { config } from "../config";
 
+
+export type RagStatusResponse = {
+  enabled: boolean;
+  db_path: string;
+  doc_count: number;
+  chunk_count: number;
+};
+
+export type RagSource = {
+  doc_id: string;
+  title: string;
+  source: string;
+  created_at: number;
+  updated_at: number;
+  chunk_count: number;
+  meta: Record<string, unknown>;
+};
+
+export type RagSourcesResponse = { ok: boolean; sources: RagSource[] };
+export type RagIngestResult = { ok: boolean; doc_id: string; title: string; source: string; chunks: number; chars: number; truncated: boolean; status: RagStatusResponse };
+export type RagQueryHit = { doc_id: string; chunk_id: string; title: string; source: string; snippet: string; content: string; score?: number | null };
+export type RagQueryResponse = { hits: RagQueryHit[] };
+
 export type StatusResponse = {
   ok: boolean;
   name: string;
@@ -798,6 +821,53 @@ export async function listIngestManifests(limit = 20): Promise<IngestManifestsRe
 
 export async function getIngestManifest(manifestId: string): Promise<IngestManifestResponse> {
   const res = await fetch(`${config.apiBase}/v1/memory/ingest/manifests/${encodeURIComponent(manifestId)}`, { headers: authHeaders() });
+  return handle(res);
+}
+
+
+export async function getRagStatus(): Promise<RagStatusResponse> {
+  const res = await fetch(`${config.apiBase}/v1/rag/status`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function listRagSources(params: { query?: string; limit?: number } = {}): Promise<RagSourcesResponse> {
+  const search = new URLSearchParams();
+  if (params.query) search.set("query", params.query);
+  if (params.limit) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  const res = await fetch(`${config.apiBase}/v1/rag/sources${qs ? `?${qs}` : ""}`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function ingestRagUrl(payload: { url: string; title?: string; collection?: string; tags?: string[]; max_chars?: number }): Promise<RagIngestResult> {
+  const res = await fetch(`${config.apiBase}/v1/rag/url`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handle(res);
+}
+
+export async function ingestRagFolder(payload: { path: string; collection?: string; tags?: string[]; max_files?: number; max_bytes?: number; extensions?: string[] }): Promise<RagStatusResponse> {
+  const res = await fetch(`${config.apiBase}/v1/rag/folder`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handle(res);
+}
+
+export async function queryRag(payload: { query: string; k?: number }): Promise<RagQueryResponse> {
+  const res = await fetch(`${config.apiBase}/v1/rag/query`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handle(res);
+}
+
+export async function deleteRagSource(docId: string): Promise<{ ok: boolean; deleted: boolean; status: RagStatusResponse }> {
+  const res = await fetch(`${config.apiBase}/v1/rag/sources/${encodeURIComponent(docId)}`, { method: "DELETE", headers: authHeaders() });
   return handle(res);
 }
 

@@ -9,6 +9,17 @@ from typing import Iterable
 
 
 @dataclass(frozen=True)
+class RagDocument:
+    doc_id: str
+    title: str
+    source: str
+    created_at: float
+    updated_at: float
+    meta: dict
+    chunk_count: int
+
+
+@dataclass(frozen=True)
 class RagHit:
     doc_id: str
     chunk_id: str
@@ -85,6 +96,56 @@ class RagStore:
             doc_count = conn.execute("SELECT COUNT(1) AS n FROM documents").fetchone()["n"]
             chunk_count = conn.execute("SELECT COUNT(1) AS n FROM chunks_fts").fetchone()["n"]
         return {"doc_count": int(doc_count), "chunk_count": int(chunk_count)}
+
+
+    def list_documents(self, *, limit: int = 100, query: str | None = None) -> list[RagDocument]:
+        limit = max(1, min(int(limit), 500))
+        q = (query or "").strip().lower()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT d.doc_id, d.title, d.source, d.created_at, d.updated_at, d.meta_json,
+                       COUNT(c.chunk_id) AS chunk_count
+                FROM documents d
+                LEFT JOIN chunks_fts c ON c.doc_id = d.doc_id
+                GROUP BY d.doc_id
+                ORDER BY d.updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        docs: list[RagDocument] = []
+        for r in rows:
+            try:
+                meta = json.loads(r["meta_json"] or "{}")
+            except Exception:
+                meta = {}
+            if q:
+                haystack = " ".join([
+                    str(r["title"] or ""),
+                    str(r["source"] or ""),
+                    json.dumps(meta, ensure_ascii=False),
+                ]).lower()
+                if q not in haystack:
+                    continue
+            docs.append(
+                RagDocument(
+                    doc_id=str(r["doc_id"]),
+                    title=str(r["title"]),
+                    source=str(r["source"]),
+                    created_at=float(r["created_at"]),
+                    updated_at=float(r["updated_at"]),
+                    meta=meta if isinstance(meta, dict) else {},
+                    chunk_count=int(r["chunk_count"] or 0),
+                )
+            )
+        return docs
+
+    def delete_document(self, doc_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM chunks_fts WHERE doc_id = ?", (doc_id,))
+            return cur.rowcount > 0
 
     def query(self, query: str, *, k: int) -> list[RagHit]:
         q = (query or "").strip()

@@ -15,3 +15,5 @@
 * [Development Guide](development-guide.md)
 * [Release Packaging](release-packaging.md)
 * [Troubleshooting](troubleshooting.md)
+
+* [Knowledge Ingest Manager](knowledge-ingest.md)

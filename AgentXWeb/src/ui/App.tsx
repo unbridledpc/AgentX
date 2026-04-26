@@ -44,6 +44,7 @@ import { ThreadList } from "./components/ThreadList";
 import { tokens } from "./tokens";
 import { SettingsPage } from "./pages/SettingsPage";
 import { CustomizationPage } from "./pages/CustomizationPage";
+import { KnowledgePage } from "./pages/KnowledgePage";
 import { clearAuth, loadAuth, logout, tryLogin, type AuthState } from "./auth";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { ChatMessage } from "./components/ChatMessage";
@@ -348,7 +349,7 @@ function messageScriptTitle(thread: Thread | null, messageId: string, fallback =
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(() => loadAuth());
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
-  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts" | "knowledge">("chat");
   const [loginUser, setLoginUser] = useState("agentx");
   const [loginPass, setLoginPass] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
@@ -2079,6 +2080,19 @@ ${script.content}
             <button
               className={[
                 "w-full rounded-xl border px-3 py-2 text-left text-sm font-medium transition",
+                activeView === "knowledge" ? "border-cyan-400/30 bg-slate-900 text-cyan-50" : "border-slate-800 bg-slate-950/70 text-slate-200 hover:bg-slate-900/80",
+              ].join(" ")}
+              onClick={() => {
+                setActiveView("knowledge");
+                onAfterNavAction();
+              }}
+              title="Open local RAG knowledge manager"
+            >
+              ◈ Knowledge
+            </button>
+            <button
+              className={[
+                "w-full rounded-xl border px-3 py-2 text-left text-sm font-medium transition",
                 activeView === "settings" || activeView === "customization"
                   ? "border-cyan-400/30 bg-slate-900 text-cyan-50"
                   : "border-slate-800 bg-slate-950/70 text-slate-200 hover:bg-slate-900/80",
@@ -2257,7 +2271,9 @@ ${script.content}
                         ? "Settings"
                         : activeView === "scripts"
                           ? "Scripts"
-                          : activeThread
+                          : activeView === "knowledge"
+                            ? "Knowledge"
+                            : activeThread
                             ? activeThread.title || config.threadTitleDefault
                             : "Chat"}
                       {activeProject ? <span className="text-xs font-normal text-slate-500">{` - ${activeProject.name}`}</span> : null}
@@ -2267,7 +2283,9 @@ ${script.content}
                         ? "Provider, appearance, layout, and local behavior."
                         : activeView === "scripts"
                           ? "Saved code artifacts from every AgentX generation."
-                          : `Direct channel into ${assistantDisplayName}.`}
+                          : activeView === "knowledge"
+                            ? "Ingest URLs, project folders, and game files into local RAG."
+                            : `Direct channel into ${assistantDisplayName}.`}
                     </div>
                   </div>
                 </div>
@@ -2352,6 +2370,8 @@ ${script.content}
                 onSystemMessage={setSystemMessage}
               />
             </div>
+          ) : activeView === "knowledge" ? (
+            <KnowledgePage onSystemMessage={setSystemMessage} />
           ) : activeView === "scripts" ? (
             renderScriptsView()
           ) : (
