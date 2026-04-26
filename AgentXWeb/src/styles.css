@@ -2048,3 +2048,85 @@ input[type="checkbox"] {
   max-width: 100%;
 }
 
+
+/* Sidebar button/glow layering fix.
+   Keeps section glow behind content and prevents pulse/glow effects from crossing over
+   the New / New Chat buttons. */
+.agentx-sidebar-panel,
+.agentx-sidebar-panel * {
+  box-sizing: border-box;
+}
+
+.agentx-sidebar-panel .agentx-panel,
+.agentx-sidebar-panel .agentx-card,
+.agentx-sidebar-panel section,
+.agentx-sidebar-panel [class*="rounded"] {
+  position: relative;
+}
+
+/* Decorative panel layers must stay behind sidebar content. */
+.agentx-sidebar-panel .agentx-panel::before,
+.agentx-sidebar-panel .agentx-card::before,
+.agentx-sidebar-panel section::before {
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Sidebar content/buttons sit above any card glow/border pseudo elements. */
+.agentx-sidebar-panel button,
+.agentx-sidebar-panel input,
+.agentx-sidebar-panel a,
+.agentx-sidebar-panel .agentx-status-pill,
+.agentx-sidebar-panel .agentx-dropdown,
+.agentx-sidebar-panel .agentx-badge,
+.agentx-sidebar-panel .agentx-section-title {
+  position: relative;
+  z-index: 2;
+}
+
+/* Sidebar action buttons should not project glow into sibling cards. */
+.agentx-sidebar-panel button {
+  isolation: isolate;
+}
+
+/* Tame only the sidebar CTA glow. This keeps the button highlighted but stops
+   the glow/pulse from visually crossing through nearby controls. */
+.agentx-sidebar-panel button:not(.agentx-dropdown__trigger) {
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--agentx-accent-primary-rgb) / 0.38),
+    inset 0 0 18px rgb(var(--agentx-accent-primary-rgb) / 0.12) !important;
+}
+
+.agentx-sidebar-panel button:not(.agentx-dropdown__trigger):hover,
+.agentx-sidebar-panel button:not(.agentx-dropdown__trigger):focus-visible {
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--agentx-accent-primary-rgb) / 0.62),
+    inset 0 0 22px rgb(var(--agentx-accent-primary-rgb) / 0.18),
+    0 0 0 1px rgb(var(--agentx-accent-primary-rgb) / 0.08) !important;
+}
+
+/* The API status pulse should stay inside the pill. */
+.agentx-sidebar-panel .agentx-status-pill {
+  overflow: hidden;
+  contain: paint;
+}
+
+.agentx-sidebar-panel .agentx-status-pill__signal,
+.agentx-sidebar-panel .agentx-status-pill__dot,
+.agentx-sidebar-panel .agentx-badge__dot {
+  position: relative;
+  z-index: 2;
+}
+
+.agentx-sidebar-panel .agentx-status-pill__signal::after {
+  inset: -0.12rem !important;
+  opacity: 0.45;
+}
+
+/* Prevent long sidebar glows from drawing vertical streaks through button areas. */
+.agentx-sidebar-panel .agentx-panel,
+.agentx-sidebar-panel .agentx-card {
+  overflow: hidden;
+  contain: paint;
+}
+
