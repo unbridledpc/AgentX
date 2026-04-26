@@ -1736,7 +1736,7 @@ ${script.content}
 
     if (variant === "overlay") {
       return (
-        <Panel className="flex h-full min-h-0 flex-col gap-3 p-3">
+        <Panel className="agentx-sidebar-panel flex h-full min-h-0 flex-col gap-3 p-3">
           <div className="flex items-center justify-between rounded-xl border border-slate-800/90 bg-slate-950/75 p-3 text-sm font-semibold text-slate-100">
             <div className="flex min-w-0 items-center gap-3">
               <BrandBadge compact />
@@ -1752,7 +1752,7 @@ ${script.content}
     }
 
     return (
-      <Panel className="flex min-h-0 flex-col gap-3 p-3">
+      <Panel className="agentx-sidebar-panel flex min-h-0 flex-col gap-3 p-3">
         <div className="flex items-center justify-between rounded-xl border border-slate-800/90 bg-slate-950/75 p-3 text-sm font-semibold text-slate-100">
           <div className="flex items-center gap-3">
             <BrandBadge compact />
