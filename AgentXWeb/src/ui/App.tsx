@@ -20,7 +20,7 @@ import {
   updateScript,
   deleteScript,
   saveSettings,
-  sendChatMessage,
+  streamChatMessage,
   deleteThread,
   updateThreadTitle,
   updateThreadModel,
@@ -1137,14 +1137,53 @@ ${script.content}
 
       const controller = new AbortController();
       activeSendAbortRef.current = controller;
-      const reply = await sendChatMessage(
-        text,
-        t1.id,
-        "chat",
-        Boolean(unsafeStatus?.unsafe_enabled),
-        buildActiveCanvasArtifact(codeCanvas),
-        controller.signal
-      );
+      const activeModelLabel = chatModel || "AgentX";
+      const localAssistant = {
+        id: createClientId("assistant"),
+        role: "assistant" as const,
+        content: `${activeModelLabel} is thinking...`,
+        ts: Date.now() / 1000,
+      };
+      setActiveThread((prev) => (prev ? { ...prev, messages: [...prev.messages, localAssistant] } : prev));
+
+      let streamedContent = "";
+      const reply = await streamChatMessage({
+        message: text,
+        threadId: t1.id,
+        responseMode: "chat",
+        unsafeEnabled: Boolean(unsafeStatus?.unsafe_enabled),
+        activeArtifact: buildActiveCanvasArtifact(codeCanvas),
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (event.event === "delta") {
+            streamedContent += event.content;
+            const nextContent = streamedContent || `${activeModelLabel} is responding...`;
+            setActiveThread((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    messages: prev.messages.map((message) =>
+                      message.id === localAssistant.id ? { ...message, content: nextContent } : message
+                    ),
+                  }
+                : prev
+            );
+          }
+          if (event.event === "done") {
+            streamedContent = event.content;
+            setActiveThread((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    messages: prev.messages.map((message) =>
+                      message.id === localAssistant.id ? { ...message, content: event.content } : message
+                    ),
+                  }
+                : prev
+            );
+          }
+        },
+      });
       assistantReplyReceived = true;
       setLastProviderError(null);
       setLastRetrieved(Array.isArray(reply.retrieved) ? reply.retrieved : []);
@@ -1183,7 +1222,12 @@ ${script.content}
       }
     } catch (e) {
       if (isAbortError(e)) {
-        setActiveThread((prev) => rollbackOptimisticThread(prev, localUser.id, userMessagePersisted));
+        setActiveThread((prev) => {
+          const rolledBack = rollbackOptimisticThread(prev, localUser.id, userMessagePersisted);
+          return rolledBack
+            ? { ...rolledBack, messages: rolledBack.messages.filter((message) => !message.id.startsWith("assistant-")) }
+            : rolledBack;
+        });
         setDraft((current) => restoreDraftAfterStop(text, current));
         setSystemMessage("Response stopped. Edit the composer and send again when you are ready.");
         return;
@@ -1192,7 +1236,12 @@ ${script.content}
       if (e instanceof ApiError && e.providerError) {
         setLastProviderError(e.providerError);
       }
-      setActiveThread((prev) => rollbackOptimisticThread(prev, localUser.id, userMessagePersisted));
+      setActiveThread((prev) => {
+        const rolledBack = rollbackOptimisticThread(prev, localUser.id, userMessagePersisted);
+        return rolledBack
+          ? { ...rolledBack, messages: rolledBack.messages.filter((message) => !message.id.startsWith("assistant-")) }
+          : rolledBack;
+      });
       setDraft(restoreDraftAfterSendFailure(text, userMessagePersisted));
       setSystemMessage(buildSendFailureMessage({ errorMessage: msg, userMessagePersisted, assistantReplyReceived }));
     } finally {

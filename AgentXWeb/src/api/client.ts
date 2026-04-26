@@ -30,6 +30,12 @@ export type ChatResponse = {
   verification?: { verdict: string; confidence: number; contradictions: string[] } | null;
   web?: { providers_used?: string[]; providers_failed?: { provider?: string; name?: string; error?: string }[]; fetch_blocked?: { url: string; reason: string }[] } | null;
 };
+
+export type ChatStreamEvent =
+  | { event: "meta"; provider?: string; model?: string; ts?: number }
+  | { event: "delta"; content: string }
+  | ((ChatResponse & { event: "done" }) & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null })
+  | { event: "error"; message: string; detail?: unknown; status_code?: number };
 export type ResponseMode = "chat" | "spoken";
 export type RetrievedChunk = {
   text: string;
@@ -438,6 +444,74 @@ export async function sendChatMessage(
     signal,
   });
   return handle(res);
+}
+
+export async function streamChatMessage(
+  args: {
+    message: string;
+    threadId?: string;
+    responseMode?: ResponseMode;
+    unsafeEnabled?: boolean;
+    activeArtifact?: ArtifactContextRequest | null;
+    signal?: AbortSignal;
+    onEvent: (event: ChatStreamEvent) => void;
+  }
+): Promise<ChatResponse & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null }> {
+  const body: Record<string, unknown> = { message: args.message };
+  if (args.threadId) body.thread_id = args.threadId;
+  if (args.responseMode) body.response_mode = args.responseMode;
+  if (typeof args.unsafeEnabled === "boolean") body.unsafe_enabled = args.unsafeEnabled;
+  if (args.activeArtifact) body.active_artifact = args.activeArtifact;
+
+  const res = await fetch(`${config.apiBase}/v1/chat/stream`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(body),
+    signal: args.signal,
+  });
+
+  if (!res.ok || !res.body) {
+    return handle(res);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResponse: (ChatResponse & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null }) | null = null;
+
+  const consumeLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const event = JSON.parse(trimmed) as ChatStreamEvent;
+    args.onEvent(event);
+    if (event.event === "error") {
+      const detail = event.detail as ProviderErrorDetail | undefined;
+      throw new ApiError(event.message || "Streaming chat failed", { status: event.status_code ?? 502, detail: event.detail ?? null, providerError: detail ?? null });
+    }
+    if (event.event === "done") {
+      finalResponse = event;
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      consumeLine(line);
+      newlineIndex = buffer.indexOf("\n");
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) consumeLine(buffer);
+
+  if (!finalResponse) {
+    throw new ApiError("Streaming chat ended without a final response", { status: 502, detail: null, providerError: null });
+  }
+  return finalResponse;
 }
 
 export async function getCapabilities(): Promise<CapabilitiesResponse> {

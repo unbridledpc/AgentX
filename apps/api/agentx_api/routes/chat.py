@@ -9,9 +9,10 @@ import urllib.error
 import urllib.request
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from agentx.core.runtime_models import ArtifactContext
-from agentx.core.llm import OllamaConfig, ProviderError, ollama_generate, provider_error_detail
+from agentx.core.llm import OllamaConfig, ProviderError, ollama_generate, ollama_generate_stream, provider_error_detail
 from agentx.core.response_sanitizer import finalize_response_text
 
 from agentx_api.auth import current_user_id
@@ -783,6 +784,114 @@ def _ollama_prompt(system: str, retrieved: str, conversation: list[dict]) -> str
     parts.append("ASSISTANT:")
     return "\n".join(parts)
 
+
+
+def _stream_event(event: str, payload: dict | None = None) -> str:
+    data = {"event": event}
+    if payload:
+        data.update(payload)
+    return json.dumps(data, ensure_ascii=False) + "\n"
+
+
+@router.post("/chat/stream")
+def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
+    """Stream assistant output as newline-delimited JSON events.
+
+    Event shapes:
+    - {"event":"meta", "provider":"ollama", "model":"..."}
+    - {"event":"delta", "content":"..."}
+    - {"event":"done", "content":"full final response", ...ChatResponse fields}
+    - {"event":"error", "message":"...", "detail":{...}}
+    """
+
+    def events():
+        try:
+            settings = _read_settings()
+            provider = (getattr(settings, "chatProvider", "stub") or "stub").strip().lower()
+            model = (getattr(settings, "chatModel", "stub") or "stub").strip()
+            response_mode = (request.response_mode or "chat").strip().lower() or "chat"
+            user_id = current_user_id(http)
+            requested_thread_id = (request.thread_id or "").strip() or None
+            if requested_thread_id and user_id:
+                thread = ensure_thread_owner(requested_thread_id, owner_id=user_id)
+                provider = (thread.chat_provider or provider or "stub").strip().lower()
+                model = (thread.chat_model or model or "stub").strip()
+
+            yield _stream_event("meta", {"provider": provider, "model": model, "ts": time.time()})
+
+            if provider == "ollama" and not config.ollama_tools_enabled:
+                if not model or model == "stub":
+                    raise HTTPException(status_code=400, detail="Ollama provider selected but no model is configured.")
+                thread_id = requested_thread_id or session_tracker.get_active_thread(user_id or "")
+                if thread_id and user_id:
+                    ensure_thread_owner(thread_id, owner_id=user_id)
+                short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
+                retrieved = _build_retrieval_context(request.message)
+
+                if config.web_enabled:
+                    urls = re.findall(r"https?://\\S+", request.message or "")
+                    urls = [u.rstrip(").,;!\"'") for u in urls][:3]
+                    web_parts: list[str] = []
+                    for u in urls:
+                        try:
+                            res = fetch_text(u, policy=_web_policy())
+                            web_parts.append(f"URL: {res.url}\n{res.text[:4000]}")
+                        except Exception:
+                            continue
+                    if web_parts:
+                        retrieved = (retrieved + "\n\n" if retrieved else "") + "\n\n".join(web_parts)
+
+                system_prompt = "You are AgentX."
+                if response_mode == "spoken":
+                    system_prompt += " Spoken mode: answer directly, keep it short, sound natural when read aloud, do not include hidden reasoning, no markdown, and no bullet lists unless the user explicitly asks for them."
+                prompt = _ollama_prompt(system_prompt, retrieved, short_term)
+                settings = _read_settings()
+                base_url = normalize_ollama_base_url(effective_ollama_base_url(settings))
+                timeout_s = effective_ollama_request_timeout_s(settings)
+                chunks: list[str] = []
+                for chunk in ollama_generate_stream(
+                    cfg=OllamaConfig(
+                        base_url=base_url,
+                        model=model,
+                        timeout_s=timeout_s,
+                        max_tool_iters=max(1, int(getattr(config, "ollama_tool_max_iters", 4))),
+                    ),
+                    prompt=prompt,
+                ):
+                    chunks.append(chunk)
+                    yield _stream_event("delta", {"content": chunk})
+                content = finalize_response_text("".join(chunks), response_mode=response_mode)
+                if not content:
+                    raise HTTPException(status_code=502, detail="Ollama returned an empty response.")
+                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time()})
+                return
+
+            # Compatibility fallback for OpenAI, stub, and Ollama tool mode. This is not token-streamed,
+            # but the frontend still gets a consistent stream protocol.
+            response = chat(request, http)
+            yield _stream_event("delta", {"content": response.content})
+            yield _stream_event(
+                "done",
+                {
+                    "role": response.role,
+                    "content": response.content,
+                    "ts": response.ts,
+                    "retrieved": [chunk.model_dump() for chunk in (response.retrieved or [])],
+                    "audit_tail": response.audit_tail or [],
+                    "sources": response.sources or [],
+                    "verification_level": response.verification_level,
+                    "verification": response.verification,
+                    "web": response.web,
+                },
+            )
+        except ProviderError as exc:
+            yield _stream_event("error", {"message": str(exc), "detail": provider_error_detail(exc)})
+        except HTTPException as exc:
+            yield _stream_event("error", {"message": str(exc.detail), "detail": exc.detail, "status_code": exc.status_code})
+        except Exception as exc:
+            yield _stream_event("error", {"message": str(exc)})
+
+    return StreamingResponse(events(), media_type="application/x-ndjson")
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest, http: Request) -> ChatResponse:

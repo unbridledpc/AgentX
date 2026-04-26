@@ -8,7 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterator
 
 
 def _env(name: str) -> str | None:
@@ -352,6 +352,128 @@ def ollama_generate(*, cfg: OllamaConfig, prompt: str) -> str:
             base_url=base_url,
             detail=str(e),
         )
+    except Exception as e:
+        _raise_provider_error(
+            category="unknown_provider_error",
+            provider="ollama",
+            message=f"Ollama request failed for model `{model}`.",
+            model=model,
+            base_url=base_url,
+            detail=str(e),
+        )
+
+
+def ollama_generate_stream(*, cfg: OllamaConfig, prompt: str) -> Iterator[str]:
+    """Yield text chunks from Ollama's streaming /api/generate endpoint."""
+    base_url = normalize_ollama_base_url(cfg.base_url)
+    model = (cfg.model or "").strip()
+    if not model or model == "stub":
+        _raise_provider_error(
+            category="provider_misconfigured",
+            provider="ollama",
+            message="Ollama is selected but no model is configured.",
+            model=model or None,
+            base_url=base_url,
+        )
+    url = f"{base_url.rstrip('/')}/api/generate"
+    payload = {"model": model, "prompt": prompt, "stream": True}
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=cfg.timeout_s) as resp:
+            for raw_line in resp:
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                if data.get("error"):
+                    error_text = str(data.get("error") or "").strip()
+                    if _looks_like_missing_model(error_text, model=model):
+                        _raise_provider_error(
+                            category="model_unavailable",
+                            provider="ollama",
+                            message=f"Model `{model}` is not available on the configured Ollama instance.",
+                            model=model,
+                            base_url=base_url,
+                            detail=error_text,
+                        )
+                    _raise_provider_error(
+                        category="provider_http_error",
+                        provider="ollama",
+                        message=f"Ollama returned an error for model `{model}`.",
+                        model=model,
+                        base_url=base_url,
+                        detail=error_text,
+                    )
+                chunk = data.get("response")
+                if isinstance(chunk, str) and chunk:
+                    yield chunk
+                if data.get("done"):
+                    break
+    except urllib.error.HTTPError as e:
+        body = _decode_http_error_body(e)
+        if _looks_like_missing_model(body, model=model):
+            _raise_provider_error(
+                category="model_unavailable",
+                provider="ollama",
+                message=f"Model `{model}` is not available on the configured Ollama instance.",
+                model=model,
+                base_url=base_url,
+                detail=body[:4000] or str(e),
+                status_code=e.code,
+            )
+        _raise_provider_error(
+            category="provider_http_error",
+            provider="ollama",
+            message=f"Ollama returned HTTP {e.code} from {base_url}.",
+            model=model,
+            base_url=base_url,
+            detail=body[:4000] or str(e),
+            status_code=e.code,
+        )
+    except (TimeoutError, socket.timeout) as e:
+        _raise_provider_error(
+            category="provider_timeout",
+            provider="ollama",
+            message=f"Ollama request timed out after {int(cfg.timeout_s)}s.",
+            model=model,
+            base_url=base_url,
+            detail=str(e),
+            timeout_s=cfg.timeout_s,
+        )
+    except urllib.error.URLError as e:
+        reason = getattr(e, "reason", e)
+        if isinstance(reason, TimeoutError):
+            _raise_provider_error(
+                category="provider_timeout",
+                provider="ollama",
+                message=f"Ollama request timed out after {int(cfg.timeout_s)}s.",
+                model=model,
+                base_url=base_url,
+                detail=str(reason),
+                timeout_s=cfg.timeout_s,
+            )
+        _raise_provider_error(
+            category="provider_unreachable",
+            provider="ollama",
+            message=f"Ollama is unreachable at {base_url}.",
+            model=model,
+            base_url=base_url,
+            detail=str(reason),
+        )
+    except ProviderError:
+        raise
     except Exception as e:
         _raise_provider_error(
             category="unknown_provider_error",
