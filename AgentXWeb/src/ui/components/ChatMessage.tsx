@@ -1,6 +1,6 @@
 import React from "react";
 
-import type { Message } from "../../api/client";
+import type { Message, QualityGateReport } from "../../api/client";
 import { MessageActions, type MessageFeedback } from "./MessageActions";
 import { MessageBubble } from "./MessageBubble";
 import { MessageContent } from "./MessageContent";
@@ -25,6 +25,7 @@ type Props = {
   displayContent?: string;
   codeCanvasMeta?: { language: string; lineCount: number; title: string } | null;
   onOpenCodeCanvas?: (() => void) | null;
+  showQualityGateReport?: boolean;
 };
 
 function glyphForLabel(label: string, fallback: string): string {
@@ -52,6 +53,77 @@ function formatDuration(ms?: number | null): string | null {
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
   return `${minutes}m ${rest}s`;
+}
+
+
+function qualityGateLabel(report?: QualityGateReport | null): { label: string; tone: "good" | "warn" | "info" } | null {
+  if (!report) return null;
+  const status = String(report.status || (report.passed ? "passed" : "warning")).toLowerCase();
+  const failed = Number(report.checks_failed ?? report.failures?.length ?? 0);
+  const fixed = Number(report.checks_fixed ?? report.fixed_failures?.length ?? 0);
+  const warned = Number(report.checks_warned ?? report.warnings?.length ?? 0);
+
+  if (status === "repaired") {
+    return { label: `Quality Gate: repaired${fixed ? ` · fixed ${fixed}` : ""}${failed ? ` · ${failed} open` : ""}`, tone: failed ? "warn" : "good" };
+  }
+  if (status === "passed") {
+    return { label: `Quality Gate: passed${warned ? ` · ${warned} warning${warned === 1 ? "" : "s"}` : ""}`, tone: warned ? "info" : "good" };
+  }
+  if (status === "failed") {
+    return { label: `Quality Gate: failed${failed ? ` · ${failed} issue${failed === 1 ? "" : "s"}` : ""}`, tone: "warn" };
+  }
+  return { label: `Quality Gate: warning${failed ? ` · ${failed} issue${failed === 1 ? "" : "s"}` : ""}`, tone: "warn" };
+}
+
+function QualityGateReportCard({ report }: { report: QualityGateReport }) {
+  const label = qualityGateLabel(report);
+  if (!label) return null;
+  const failures = report.failures ?? [];
+  const fixed = report.fixed_failures ?? [];
+  const warnings = report.warnings ?? [];
+  const pipeline = [report.draft_model, report.review_model].filter(Boolean).join(" → ");
+  const hasDetails = Boolean(pipeline || failures.length || fixed.length || warnings.length);
+
+  return (
+    <div className={["agentx-quality-gate", `agentx-quality-gate--${label.tone}`].join(" ")}>
+      <div className="agentx-quality-gate__header">
+        <span className="agentx-quality-gate__title">{label.label}</span>
+        {report.language ? <span className="agentx-quality-gate__meta">{report.language}</span> : null}
+      </div>
+      <div className="agentx-quality-gate__summary">
+        <span>{Number(report.checks_passed ?? 0)} passed</span>
+        <span>{Number(report.checks_fixed ?? fixed.length)} fixed</span>
+        <span>{Number(report.checks_failed ?? failures.length)} open</span>
+        <span>{Number(report.checks_warned ?? warnings.length)} warnings</span>
+      </div>
+      {hasDetails ? (
+        <details className="agentx-quality-gate__details">
+          <summary>Show quality gate details</summary>
+          <div className="agentx-quality-gate__details-body">
+            {pipeline ? <div><strong>Pipeline:</strong> {pipeline}</div> : null}
+            {fixed.length ? (
+              <div>
+                <strong>Fixed:</strong>
+                <ul>{fixed.map((item, index) => <li key={`fixed-${index}`}>{item}</li>)}</ul>
+              </div>
+            ) : null}
+            {failures.length ? (
+              <div>
+                <strong>Still open:</strong>
+                <ul>{failures.map((item, index) => <li key={`failure-${index}`}>{item}</li>)}</ul>
+              </div>
+            ) : null}
+            {warnings.length ? (
+              <div>
+                <strong>Warnings:</strong>
+                <ul>{warnings.map((item, index) => <li key={`warning-${index}`}>{item}</li>)}</ul>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 function responseMetricsLabel(message: Message): string | null {
@@ -83,6 +155,7 @@ export function ChatMessage({
   displayContent,
   codeCanvasMeta = null,
   onOpenCodeCanvas = null,
+  showQualityGateReport = true,
 }: Props) {
   const showIdentity = startsGroup || message.role === "system";
   const rowClass =
@@ -94,6 +167,7 @@ export function ChatMessage({
   const showActions = message.role !== "system" && (showIdentity || endsGroup);
   const authorLabel = roleLabel(message.role, assistantLabel, userLabel);
   const metricsLabel = responseMetricsLabel(message);
+  const qualityGate = showQualityGateReport && message.role === "assistant" ? message.quality_gate ?? null : null;
 
   return (
     <article className={[rowClass, startsGroup ? "agentx-message-row--start" : "agentx-message-row--continued", endsGroup ? "agentx-message-row--end" : ""].join(" ")}>
@@ -183,6 +257,8 @@ export function ChatMessage({
               </div>
             </details>
           ) : null}
+
+          {qualityGate ? <QualityGateReportCard report={qualityGate} /> : null}
 
           {codeCanvasMeta ? (
             <div className={["agentx-message-canvas-note", languageAccentClass(codeCanvasMeta.language)].join(" ")}>

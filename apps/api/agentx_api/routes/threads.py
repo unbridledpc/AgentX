@@ -38,6 +38,7 @@ class MessagePayload(BaseModel):
     role: Literal["user", "assistant", "system"]
     content: str
     response_metrics: dict | None = None
+    quality_gate: dict | None = None
 
 
 class TitlePayload(BaseModel):
@@ -59,6 +60,7 @@ class Message(BaseModel):
     content: str
     ts: float
     response_metrics: dict | None = None
+    quality_gate: dict | None = None
 
 
 class Thread(BaseModel):
@@ -237,6 +239,7 @@ def append_message(thread_id: str, payload: MessagePayload, http: Request) -> Th
         content=payload.content,
         ts=now,
         response_metrics=(payload.response_metrics if payload.role == "assistant" else None),
+        quality_gate=(payload.quality_gate if payload.role == "assistant" else None),
     )
     thread.messages.append(message)
     thread.updated_at = now

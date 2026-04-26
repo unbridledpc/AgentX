@@ -30,6 +30,24 @@ export type ResponseMetrics = {
   completed_at?: number;
 };
 
+export type QualityGateReport = {
+  status?: "passed" | "repaired" | "warning" | "failed" | string;
+  passed?: boolean;
+  language?: string | null;
+  repair_attempted?: boolean;
+  repaired?: boolean;
+  initial_failures?: string[];
+  failures?: string[];
+  fixed_failures?: string[];
+  warnings?: string[];
+  checks_passed?: number;
+  checks_failed?: number;
+  checks_fixed?: number;
+  checks_warned?: number;
+  draft_model?: string | null;
+  review_model?: string | null;
+};
+
 export type ChatResponse = {
   role: "assistant";
   content: string;
@@ -41,10 +59,11 @@ export type ChatResponse = {
   verification?: { verdict: string; confidence: number; contradictions: string[] } | null;
   web?: { providers_used?: string[]; providers_failed?: { provider?: string; name?: string; error?: string }[]; fetch_blocked?: { url: string; reason: string }[] } | null;
   response_metrics?: ResponseMetrics | null;
+  quality_gate?: QualityGateReport | null;
 };
 
 export type ChatStreamEvent =
-  | { event: "meta"; provider?: string; model?: string; ts?: number; stage?: string; draft_model?: string; review_model?: string }
+  | { event: "meta"; provider?: string; model?: string; ts?: number; stage?: string; draft_model?: string; review_model?: string; quality_gate?: QualityGateReport | null }
   | { event: "delta"; content: string }
   | ((ChatResponse & { event: "done" }) & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null })
   | { event: "error"; message: string; detail?: unknown; status_code?: number };
@@ -222,6 +241,7 @@ export type Message = {
   content: string;
   ts: number;
   response_metrics?: ResponseMetrics | null;
+  quality_gate?: QualityGateReport | null;
 };
 export type Thread = {
   id: string;
@@ -272,6 +292,7 @@ export type ModelBehaviorSettings = {
   preferStandardLibrary?: boolean;
   windowsAwareExamples?: boolean;
   autoRepairEnabled?: boolean;
+  showQualityGateReport?: boolean;
   globalInstructions?: string;
   codingContract?: string;
   collaborativeReviewerContract?: string;
@@ -292,6 +313,7 @@ export const DEFAULT_MODEL_BEHAVIOR_SETTINGS: Required<ModelBehaviorSettings> = 
   preferStandardLibrary: true,
   windowsAwareExamples: true,
   autoRepairEnabled: true,
+  showQualityGateReport: true,
   globalInstructions: `You are AgentX. Answer directly and helpfully.
 Do not invent fake USER/ASSISTANT dialogue.
 When the user asks for a file, export, report, or script, make sure the output actually implements that request.`,
@@ -805,7 +827,7 @@ export async function getThread(id: string): Promise<Thread> {
 
 export async function appendThreadMessage(
   threadId: string,
-  payload: { role: Message["role"]; content: string; response_metrics?: ResponseMetrics | null }
+  payload: { role: Message["role"]; content: string; response_metrics?: ResponseMetrics | null; quality_gate?: QualityGateReport | null }
 ): Promise<Thread> {
   const res = await fetch(`${config.apiBase}/v1/threads/${threadId}/messages`, {
     method: "POST",

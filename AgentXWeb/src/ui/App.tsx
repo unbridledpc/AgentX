@@ -1337,6 +1337,7 @@ ${script.content}
         content: `${activeModelLabel} is thinking...`,
         ts: Date.now() / 1000,
         response_metrics: null,
+        quality_gate: null,
       };
       setActiveThread((prev) => (prev ? { ...prev, messages: [...prev.messages, localAssistant] } : prev));
       resumeAutoScroll("auto");
@@ -1372,7 +1373,7 @@ ${script.content}
                 ? {
                     ...prev,
                     messages: prev.messages.map((message) =>
-                      message.id === localAssistant.id ? { ...message, content: event.content, response_metrics: event.response_metrics ?? null } : message
+                      message.id === localAssistant.id ? { ...message, content: event.content, response_metrics: event.response_metrics ?? null, quality_gate: event.quality_gate ?? null } : message
                     ),
                   }
                 : prev
@@ -1387,7 +1388,7 @@ ${script.content}
       setLastVerificationLevel(typeof reply.verification_level === "string" ? reply.verification_level : null);
       setLastVerification(reply.verification ?? null);
       setLastWebMeta(reply.web ?? null);
-      const t3 = await appendThreadMessage(t1.id, { role: "assistant", content: reply.content, response_metrics: reply.response_metrics ?? null });
+      const t3 = await appendThreadMessage(t1.id, { role: "assistant", content: reply.content, response_metrics: reply.response_metrics ?? null, quality_gate: reply.quality_gate ?? null });
       setActiveThread(t3);
       setThreads((prev) => [threadSummary(t3), ...prev.filter((x) => x.id !== t3.id)]);
       const assistantMessage = t3.messages[t3.messages.length - 1];
@@ -2392,6 +2393,7 @@ ${script.content}
                               userLabel={userDisplayName}
                               codeCanvasMeta={companion ? { language: companion.language, lineCount: companion.lineCount, title: companion.title } : null}
                               onOpenCodeCanvas={companion && layoutSettings.showCodeCanvas ? () => reopenCodeCanvas(m.id) : null}
+                              showQualityGateReport={appSettings.modelBehavior?.showQualityGateReport ?? true}
                             />
                           );
                         });

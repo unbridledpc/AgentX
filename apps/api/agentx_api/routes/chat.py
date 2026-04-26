@@ -117,6 +117,7 @@ class ChatResponse(BaseModel):
     verification: dict | None = None
     web: dict | None = None
     response_metrics: ResponseMetrics | None = None
+    quality_gate: dict | None = None
 
 
 def _extract_web_meta(tool_results: object) -> dict | None:
@@ -1140,6 +1141,53 @@ def _collaborative_quality_gate(original_request: str, final_answer: str) -> dic
     return {"passed": not failures, "language": lang, "failures": failures, "warnings": warnings}
 
 
+def _quality_gate_report(
+    *,
+    initial_gate: dict | None,
+    final_gate: dict | None,
+    repair_attempted: bool,
+    repaired: bool,
+    draft_model: str | None = None,
+    review_model: str | None = None,
+) -> dict:
+    initial = initial_gate or {"passed": True, "failures": [], "warnings": [], "language": "unknown"}
+    final = final_gate or initial
+    initial_failures = list(initial.get("failures") or [])
+    final_failures = list(final.get("failures") or [])
+    final_warnings = list(final.get("warnings") or [])
+    fixed_failures = [failure for failure in initial_failures if failure not in final_failures]
+
+    if final_failures:
+        status = "warning" if repair_attempted else "failed"
+    elif repaired:
+        status = "repaired"
+    else:
+        status = "passed"
+
+    checks_failed = len(final_failures)
+    checks_fixed = len(fixed_failures)
+    checks_warned = len(final_warnings)
+    checks_passed = max(0, len(initial_failures) - checks_failed)
+
+    return {
+        "status": status,
+        "passed": not final_failures,
+        "language": final.get("language") or initial.get("language") or "unknown",
+        "repair_attempted": repair_attempted,
+        "repaired": repaired,
+        "initial_failures": initial_failures,
+        "failures": final_failures,
+        "fixed_failures": fixed_failures,
+        "warnings": final_warnings,
+        "checks_passed": checks_passed,
+        "checks_failed": checks_failed,
+        "checks_fixed": checks_fixed,
+        "checks_warned": checks_warned,
+        "draft_model": draft_model,
+        "review_model": review_model,
+    }
+
+
 def _collaborative_repair_prompt(
     *,
     system_prompt: str,
@@ -1303,9 +1351,13 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                 if not content:
                     raise HTTPException(status_code=502, detail=f"Review model {review_model} returned an empty response.")
 
-                gate = _collaborative_quality_gate(request.message, content)
+                initial_gate = _collaborative_quality_gate(request.message, content)
+                gate = initial_gate
+                repair_attempted = False
+                repaired_successfully = False
                 behavior = getattr(settings, "modelBehavior", None)
                 if not gate.get("passed") and _behavior_flag(behavior, "autoRepairEnabled", True):
+                    repair_attempted = True
                     yield _stream_event(
                         "meta",
                         {
@@ -1338,7 +1390,17 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     repaired = finalize_response_text(repaired, response_mode=response_mode)
                     if repaired:
                         content = repaired
+                        repaired_successfully = True
                         gate = _collaborative_quality_gate(request.message, content)
+
+                quality_gate_report = _quality_gate_report(
+                    initial_gate=initial_gate,
+                    final_gate=gate,
+                    repair_attempted=repair_attempted,
+                    repaired=repaired_successfully,
+                    draft_model=draft_model,
+                    review_model=review_model,
+                )
 
                 first_token_at = time.perf_counter()
                 yield _stream_event("delta", {"content": content})
@@ -1350,7 +1412,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     user_message=request.message,
                     content=content,
                 )
-                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time(), "response_metrics": metrics.model_dump()})
+                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time(), "response_metrics": metrics.model_dump(), "quality_gate": quality_gate_report})
                 return
 
             if provider == "ollama" and not config.ollama_tools_enabled:

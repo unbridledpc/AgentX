@@ -269,6 +269,15 @@ export function SettingsPage(props: Props) {
                   />
                   <span>Quality gate auto-repair</span>
                 </label>
+                <label className="flex items-center gap-2" title="Shows pass/repaired/warning details under collaborative coding responses.">
+                  <input
+                    type="checkbox"
+                    checked={modelBehavior.showQualityGateReport}
+                    disabled={loading || !modelBehavior.enabled}
+                    onChange={(e) => updateModelBehavior({ showQualityGateReport: e.target.checked })}
+                  />
+                  <span>Show quality gate report</span>
+                </label>
               </div>
 
               <label className={tokens.fieldLabel}>Global Instructions</label>

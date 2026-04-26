@@ -162,6 +162,7 @@ class ModelBehaviorSettingsModel(BaseModel):
     preferStandardLibrary: bool = True
     windowsAwareExamples: bool = True
     autoRepairEnabled: bool = True
+    showQualityGateReport: bool = True
     globalInstructions: str = DEFAULT_GLOBAL_INSTRUCTIONS
     codingContract: str = DEFAULT_CODING_CONTRACT
     collaborativeReviewerContract: str = DEFAULT_COLLABORATIVE_REVIEWER_CONTRACT

@@ -2296,3 +2296,77 @@ input[type="checkbox"] {
   font-weight: 600;
   white-space: nowrap;
 }
+
+.agentx-quality-gate {
+  border-radius: 0.95rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.48);
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.9rem;
+  color: rgba(226, 232, 240, 0.94);
+  font-size: 0.8rem;
+}
+
+.agentx-quality-gate--good {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.agentx-quality-gate--warn {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.09);
+}
+
+.agentx-quality-gate--info {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.agentx-quality-gate__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.agentx-quality-gate__title {
+  font-weight: 700;
+}
+
+.agentx-quality-gate__meta {
+  color: rgba(203, 213, 225, 0.76);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.agentx-quality-gate__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+  color: rgba(203, 213, 225, 0.84);
+  font-size: 0.76rem;
+}
+
+.agentx-quality-gate__details {
+  margin-top: 0.55rem;
+}
+
+.agentx-quality-gate__details summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+
+.agentx-quality-gate__details-body {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.agentx-quality-gate__details ul {
+  margin: 0.35rem 0 0 1.1rem;
+  padding: 0;
+}
