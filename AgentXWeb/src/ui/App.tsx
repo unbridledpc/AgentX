@@ -1884,7 +1884,6 @@ ${script.content}
                               endsGroup={!next || next.role !== m.role}
                               assistantLabel={assistantDisplayName}
                               userLabel={userDisplayName}
-                              displayContent={companion ? companion.summary : undefined}
                               codeCanvasMeta={companion ? { language: companion.language, lineCount: companion.lineCount, title: companion.title } : null}
                               onOpenCodeCanvas={companion && layoutSettings.showCodeCanvas ? () => reopenCodeCanvas(m.id) : null}
                             />
