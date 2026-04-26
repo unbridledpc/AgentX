@@ -1949,3 +1949,65 @@ input[type="checkbox"] {
   background: rgb(var(--agentx-accent-primary-rgb) / 0.26);
   color: #f8fafc;
 }
+
+
+/* Keep the top-right model controls from overlapping each other. */
+.agentx-topbar__controls {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.agentx-topbar__field {
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+}
+
+.agentx-topbar__field > span {
+  flex: 0 0 auto;
+}
+
+.agentx-topbar__field .agentx-dropdown {
+  min-width: 8.5rem;
+  max-width: min(18rem, 28vw);
+  flex: 1 1 12rem;
+}
+
+.agentx-topbar__field .agentx-dropdown--fit {
+  width: auto;
+}
+
+.agentx-topbar__field button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.agentx-dropdown__trigger {
+  min-width: 0;
+}
+
+.agentx-dropdown__value,
+.agentx-dropdown__placeholder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .agentx-topbar__controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .agentx-topbar__field {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .agentx-topbar__field .agentx-dropdown {
+    max-width: none;
+    flex: 1 1 12rem;
+  }
+}
+
