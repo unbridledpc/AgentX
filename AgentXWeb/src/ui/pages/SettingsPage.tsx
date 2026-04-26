@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { DEFAULT_AGENTX_SETTINGS, saveSettings, type AgentXSettings, type StatusResponse } from "../../api/client";
+import { DEFAULT_AGENTX_SETTINGS, DEFAULT_MODEL_BEHAVIOR_SETTINGS, normalizeModelBehaviorSettings, saveSettings, type AgentXSettings, type StatusResponse } from "../../api/client";
 import { config } from "../../config";
 import { Panel } from "../components/Panel";
 import { AgentXDropdown, type AgentXDropdownOption } from "../components/AgentXDropdown";
@@ -24,6 +24,7 @@ export function SettingsPage(props: Props) {
   const model = (settings?.chatModel ?? props.status.chat_model ?? "").toString();
   const ollamaBaseUrl = (settings?.ollamaBaseUrl ?? props.status.ollama_base_url ?? "http://127.0.0.1:11434").toString();
   const ollamaRequestTimeoutS = Math.max(1, Number(settings?.ollamaRequestTimeoutS ?? DEFAULT_AGENTX_SETTINGS.ollamaRequestTimeoutS));
+  const modelBehavior = normalizeModelBehaviorSettings(settings.modelBehavior ?? DEFAULT_MODEL_BEHAVIOR_SETTINGS);
 
   const modelOptions = useMemo(() => {
     const openai = Array.isArray(props.status.available_chat_models?.openai) ? props.status.available_chat_models.openai : [];
@@ -54,8 +55,19 @@ export function SettingsPage(props: Props) {
   }, [modelOptions.ollama, modelOptions.openai, provider]);
 
   useEffect(() => {
-    setSettings({ ...DEFAULT_AGENTX_SETTINGS, ...(props.settings ?? {}) });
+    const incoming = { ...DEFAULT_AGENTX_SETTINGS, ...(props.settings ?? {}) };
+    setSettings({ ...incoming, modelBehavior: normalizeModelBehaviorSettings(incoming.modelBehavior) });
   }, [props.settings]);
+
+  const updateModelBehavior = (patch: Partial<typeof DEFAULT_MODEL_BEHAVIOR_SETTINGS>) => {
+    setSettings((prev) => ({
+      ...prev,
+      modelBehavior: {
+        ...normalizeModelBehaviorSettings(prev.modelBehavior),
+        ...patch,
+      },
+    }));
+  };
 
   const save = async (next: AgentXSettings) => {
     if (!props.statusOk) {
@@ -65,9 +77,10 @@ export function SettingsPage(props: Props) {
     setLoading(true);
     setError(null);
     try {
-      const saved = await saveSettings(next);
-      setSettings({ ...DEFAULT_AGENTX_SETTINGS, ...saved });
-      props.onSettingsSaved(saved);
+      const saved = await saveSettings({ ...next, modelBehavior: normalizeModelBehaviorSettings(next.modelBehavior) });
+      const normalizedSaved = { ...DEFAULT_AGENTX_SETTINGS, ...saved, modelBehavior: normalizeModelBehaviorSettings(saved.modelBehavior) };
+      setSettings(normalizedSaved);
+      props.onSettingsSaved(normalizedSaved);
     } catch (e) {
       console.error("save settings failed", e);
       setError(e instanceof Error ? e.message : String(e));
@@ -179,6 +192,107 @@ export function SettingsPage(props: Props) {
                   <span className="font-semibold">Model discovery:</span> {props.status.models_error}
                 </div>
               ) : null}
+            </div>
+          </Panel>
+
+          <Panel className="p-3">
+            <div className={tokens.smallLabel}>Model Behavior</div>
+            <div className="mt-2 grid gap-3 text-sm text-slate-300">
+              <div className={tokens.helperText}>
+                These instructions are prepended to model requests so local models keep code, exports, and formatting consistent.
+              </div>
+
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={modelBehavior.enabled}
+                  disabled={loading}
+                  onChange={(e) => updateModelBehavior({ enabled: e.target.checked })}
+                />
+                <span>Enable global model contract</span>
+              </label>
+
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={modelBehavior.codingContractEnabled}
+                  disabled={loading || !modelBehavior.enabled}
+                  onChange={(e) => updateModelBehavior({ codingContractEnabled: e.target.checked })}
+                />
+                <span>Enable coding contract when coding intent is detected</span>
+              </label>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={modelBehavior.requireFencedCode}
+                    disabled={loading || !modelBehavior.enabled}
+                    onChange={(e) => updateModelBehavior({ requireFencedCode: e.target.checked })}
+                  />
+                  <span>Require fenced code blocks</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={modelBehavior.preferStandardLibrary}
+                    disabled={loading || !modelBehavior.enabled}
+                    onChange={(e) => updateModelBehavior({ preferStandardLibrary: e.target.checked })}
+                  />
+                  <span>Prefer standard library</span>
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={modelBehavior.windowsAwareExamples}
+                    disabled={loading || !modelBehavior.enabled}
+                    onChange={(e) => updateModelBehavior({ windowsAwareExamples: e.target.checked })}
+                  />
+                  <span>Windows-aware examples</span>
+                </label>
+                <label className="flex items-center gap-2" title="Reserved for the next quality-gate pass.">
+                  <input
+                    type="checkbox"
+                    checked={modelBehavior.autoRepairEnabled}
+                    disabled={loading || !modelBehavior.enabled}
+                    onChange={(e) => updateModelBehavior({ autoRepairEnabled: e.target.checked })}
+                  />
+                  <span>Auto-repair missed requirements</span>
+                </label>
+              </div>
+
+              <label className={tokens.fieldLabel}>Global Instructions</label>
+              <textarea
+                className={`${tokens.input} min-h-[120px] font-mono text-xs`}
+                value={modelBehavior.globalInstructions}
+                disabled={loading || !modelBehavior.enabled}
+                onChange={(e) => updateModelBehavior({ globalInstructions: e.target.value })}
+              />
+
+              <label className={tokens.fieldLabel}>Default Coding Contract</label>
+              <textarea
+                className={`${tokens.input} min-h-[220px] font-mono text-xs`}
+                value={modelBehavior.codingContract}
+                disabled={loading || !modelBehavior.enabled || !modelBehavior.codingContractEnabled}
+                onChange={(e) => updateModelBehavior({ codingContract: e.target.value })}
+              />
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className={tokens.buttonSecondary}
+                  disabled={loading}
+                  onClick={() => updateModelBehavior(DEFAULT_MODEL_BEHAVIOR_SETTINGS)}
+                >
+                  Restore Defaults
+                </button>
+                <button
+                  className={tokens.button}
+                  disabled={loading}
+                  onClick={() => void save({ ...settings, modelBehavior })}
+                >
+                  Save Model Behavior
+                </button>
+              </div>
             </div>
           </Panel>
 

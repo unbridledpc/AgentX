@@ -20,6 +20,36 @@ class LayoutSettingsModel(BaseModel):
     showCodeCanvas: bool = True
 
 
+DEFAULT_GLOBAL_INSTRUCTIONS = """You are AgentX. Answer directly and helpfully.
+Do not invent fake USER/ASSISTANT dialogue.
+When the user asks for a file, export, report, or script, make sure the output actually implements that request."""
+
+
+DEFAULT_CODING_CONTRACT = """When writing code:
+- Provide complete, runnable code.
+- Use proper fenced code blocks with the language name.
+- Do not write \"Copy code.\"
+- Preserve indentation exactly.
+- Prefer the standard library unless the user asks for dependencies.
+- For CLI scripts, prefer argparse.
+- Validate user-provided paths and inputs.
+- Handle PermissionError and OSError where file access is involved.
+- If the user asks for CSV/export/report/file output, the code must implement that output.
+- Include a short run example, using Windows paths when the user appears to be on Windows.
+- Do not invent fake USER/ASSISTANT dialogue."""
+
+
+class ModelBehaviorSettingsModel(BaseModel):
+    enabled: bool = True
+    codingContractEnabled: bool = True
+    requireFencedCode: bool = True
+    preferStandardLibrary: bool = True
+    windowsAwareExamples: bool = True
+    autoRepairEnabled: bool = False
+    globalInstructions: str = DEFAULT_GLOBAL_INSTRUCTIONS
+    codingContract: str = DEFAULT_CODING_CONTRACT
+
+
 class SettingsModel(BaseModel):
     showInspector: bool = False
     inspectorWindow: bool = False
@@ -34,6 +64,7 @@ class SettingsModel(BaseModel):
     accentIntensity: str = "balanced"
     densityMode: str = "comfortable"
     layout: LayoutSettingsModel = LayoutSettingsModel()
+    modelBehavior: ModelBehaviorSettingsModel = ModelBehaviorSettingsModel()
 
 
 def effective_ollama_base_url(settings: SettingsModel | None = None) -> str:
