@@ -271,7 +271,6 @@ export type ModelBehaviorSettings = {
   preferStandardLibrary?: boolean;
   windowsAwareExamples?: boolean;
   autoRepairEnabled?: boolean;
-  codingRouting?: "askFirst" | "autoDraftReview" | "autoHeavyCoding" | "normalOnly";
   globalInstructions?: string;
   codingContract?: string;
 };
@@ -290,7 +289,6 @@ export const DEFAULT_MODEL_BEHAVIOR_SETTINGS: Required<ModelBehaviorSettings> = 
   preferStandardLibrary: true,
   windowsAwareExamples: true,
   autoRepairEnabled: false,
-  codingRouting: "autoDraftReview",
   globalInstructions: `You are AgentX. Answer directly and helpfully.
 Do not invent fake USER/ASSISTANT dialogue.
 When the user asks for a file, export, report, or script, make sure the output actually implements that request.`,
@@ -305,8 +303,6 @@ When the user asks for a file, export, report, or script, make sure the output a
 - Handle PermissionError and OSError where file access is involved.
 - If the user asks for CSV/export/report/file output, the code must implement that output.
 - Include a short run example, using Windows paths when the user appears to be on Windows.
-- Validate that folder/path arguments exist before scanning or writing.
-- For CSV exports, include useful columns such as file_name, full_path, size_bytes, and size_gb when relevant.
 - Do not invent fake USER/ASSISTANT dialogue.`,
 };
 

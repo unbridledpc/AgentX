@@ -36,8 +36,6 @@ DEFAULT_CODING_CONTRACT = """When writing code:
 - Handle PermissionError and OSError where file access is involved.
 - If the user asks for CSV/export/report/file output, the code must implement that output.
 - Include a short run example, using Windows paths when the user appears to be on Windows.
-- Validate that folder/path arguments exist before scanning or writing.
-- For CSV exports, include useful columns such as file_name, full_path, size_bytes, and size_gb when relevant.
 - Do not invent fake USER/ASSISTANT dialogue."""
 
 
@@ -48,7 +46,6 @@ class ModelBehaviorSettingsModel(BaseModel):
     preferStandardLibrary: bool = True
     windowsAwareExamples: bool = True
     autoRepairEnabled: bool = False
-    codingRouting: str = "autoDraftReview"
     globalInstructions: str = DEFAULT_GLOBAL_INSTRUCTIONS
     codingContract: str = DEFAULT_CODING_CONTRACT
 
