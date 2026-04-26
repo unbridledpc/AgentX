@@ -218,7 +218,7 @@ type HandoffSuggestion = {
   reviewModel?: string | null;
 };
 
-const CODING_HANDOFF_RE = /\b(code this|build this|create this|generate this|make (?:a |an )?(?:script|app|tool|program)|write (?:a |an )?(?:script|app|tool|program)|turn this into code|implement this|i would like you to code|i want you to code|can you code|create an? app|build an? app)\b/i;
+const CODING_HANDOFF_RE = /\b(code this|build this|create this|generate this|make (?:a |an )?(?:script|app|tool|program|cli)|write (?:a |an )?(?:script|app|tool|program|cli|function|class)|turn this into code|implement this|i would like you to code|i want you to code|can you code|create an? (?:app|script|tool|program|cli)|build an? (?:app|script|tool|program|cli)|python script|powershell script|bash script|javascript function|typescript function|react component|export (?:a )?csv|scan (?:a )?folder|find files|larger than \d+\s*(?:gb|mb|tb))\b/i;
 
 const HEAVY_CODING_MODEL_PRIORITY = [
   "devstral-small-2:24b-4k-gpu",
@@ -242,7 +242,42 @@ const REVIEW_MODEL_PRIORITY = [
 ];
 
 function shouldSuggestCodingHandoff(text: string): boolean {
-  return CODING_HANDOFF_RE.test(text || "");
+  const cleaned = text || "";
+  if (CODING_HANDOFF_RE.test(cleaned)) return true;
+  if (/```/.test(cleaned)) return true;
+  return /\b(python|javascript|typescript|react|node|bash|powershell|sql|docker|yaml)\b/i.test(cleaned)
+    && /\b(script|code|program|function|class|cli|tool|app|api|csv|json|file|folder|scan|export|generate|create|write|build|implement|fix|debug)\b/i.test(cleaned);
+}
+
+function buildCollaborativeCodingSelection(params: {
+  provider: "ollama";
+  models: string[];
+  currentModel: string;
+  mode: "autoDraftReview" | "autoHeavyCoding";
+}) {
+  const reviewModel = pickReviewModel(params.models, params.currentModel) ?? pickHeavyCodingModel(params.models, params.currentModel);
+  if (!reviewModel) return null;
+  if (params.mode === "autoHeavyCoding") {
+    return {
+      provider: params.provider,
+      model: reviewModel,
+      suppressHandoff: true,
+      assistantLabel: reviewModel,
+      codingPipeline: null,
+    };
+  }
+  const draftModel = pickFastDraftModel(params.models, reviewModel) || "qwen2.5-coder:7b-4k-gpu";
+  return {
+    provider: params.provider,
+    model: reviewModel,
+    suppressHandoff: true,
+    assistantLabel: `${draftModel} → ${reviewModel}`,
+    codingPipeline: {
+      mode: "draft_review",
+      draft_model: draftModel,
+      review_model: reviewModel,
+    } satisfies CodingPipelineRequest,
+  };
 }
 
 function pickPriorityModel(models: string[], priority: string[], currentModel = "", allowCurrent = false): string | null {
@@ -590,7 +625,7 @@ export function App() {
       const settings = await getSettings();
       const pending = loadPendingLayoutSave();
       setPendingLayoutSync(pending);
-      setAppSettings(applyPendingLayoutToSettings({ ...DEFAULT_AGENTX_SETTINGS, ...settings, layout: normalizeLayoutSettings(settings.layout) }, pending));
+      setAppSettings(applyPendingLayoutToSettings({ ...DEFAULT_AGENTX_SETTINGS, ...settings, layout: normalizeLayoutSettings(settings.layout), modelBehavior: normalizeModelBehaviorSettings(settings.modelBehavior) }, pending));
     } catch (e) {
       console.error("Failed to load app settings", e);
       const pending = loadPendingLayoutSave();
@@ -604,6 +639,7 @@ export function App() {
       ...DEFAULT_AGENTX_SETTINGS,
       ...settings,
       layout: normalizeLayoutSettings(settings.layout),
+      modelBehavior: normalizeModelBehaviorSettings(settings.modelBehavior),
     };
     setAppSettings(next);
     setChatProvider(next.chatProvider || "stub");
@@ -1248,9 +1284,30 @@ ${script.content}
       return;
     }
 
+    const behavior = normalizeModelBehaviorSettings(appSettings.modelBehavior);
+    let effectiveOverrideSelection = overrideSelection;
+    const routingMode = behavior.codingRouting || "askFirst";
+    if (!effectiveOverrideSelection && behavior.enabled && behavior.codingContractEnabled && shouldSuggestCodingHandoff(text)) {
+      if ((chatProvider || "stub").toLowerCase() === "ollama" && routingMode === "autoDraftReview") {
+        effectiveOverrideSelection = buildCollaborativeCodingSelection({
+          provider: "ollama",
+          models: modelOptions.ollama,
+          currentModel: chatModel,
+          mode: "autoDraftReview",
+        }) ?? undefined;
+      } else if ((chatProvider || "stub").toLowerCase() === "ollama" && routingMode === "autoHeavyCoding") {
+        effectiveOverrideSelection = buildCollaborativeCodingSelection({
+          provider: "ollama",
+          models: modelOptions.ollama,
+          currentModel: chatModel,
+          mode: "autoHeavyCoding",
+        }) ?? undefined;
+      }
+    }
+
     // Prevent obvious model/provider mismatches (most common source of 502s).
-    const provider = (overrideSelection?.provider || chatProvider || "stub").toLowerCase();
-    const effectiveModel = (overrideSelection?.model || chatModel || "stub").trim();
+    const provider = (effectiveOverrideSelection?.provider || chatProvider || "stub").toLowerCase();
+    const effectiveModel = (effectiveOverrideSelection?.model || chatModel || "stub").trim();
     if (provider === "openai" && modelOptions.openai.length > 0 && !modelOptions.openai.includes(effectiveModel)) {
       setSystemMessage("Selected OpenAI model is not in the discovered list. Pick a valid model from the dropdown.");
       return;
@@ -1274,13 +1331,13 @@ ${script.content}
       }
     }
 
-    if (overrideSelection) {
+    if (effectiveOverrideSelection) {
       setChatProvider(provider);
       setChatModel(effectiveModel);
     }
 
     let thread = activeThread;
-    if (thread && overrideSelection) {
+    if (thread && effectiveOverrideSelection) {
       try {
         thread = await updateThreadModel(thread.id, provider, effectiveModel);
         setActiveThread(thread);
@@ -1330,7 +1387,7 @@ ${script.content}
 
       const controller = new AbortController();
       activeSendAbortRef.current = controller;
-      const activeModelLabel = overrideSelection?.assistantLabel || effectiveModel || "AgentX";
+      const activeModelLabel = effectiveOverrideSelection?.assistantLabel || effectiveModel || "AgentX";
       const localAssistant = {
         id: createClientId("assistant"),
         role: "assistant" as const,
@@ -1348,7 +1405,7 @@ ${script.content}
         responseMode: "chat",
         unsafeEnabled: Boolean(unsafeStatus?.unsafe_enabled),
         activeArtifact: buildActiveCanvasArtifact(codeCanvas),
-        codingPipeline: overrideSelection?.codingPipeline ?? null,
+        codingPipeline: effectiveOverrideSelection?.codingPipeline ?? null,
         signal: controller.signal,
         onEvent: (event) => {
           if (event.event === "delta") {
@@ -1416,7 +1473,7 @@ ${script.content}
           sourceMessageId: assistantMessage.id,
         });
       }
-      if (!overrideSelection?.suppressHandoff && shouldSuggestCodingHandoff(text)) {
+      if (!effectiveOverrideSelection?.suppressHandoff && behavior.codingRouting !== "normalOnly" && shouldSuggestCodingHandoff(text)) {
         const targetModel = pickHeavyCodingModel(modelOptions.ollama, effectiveModel);
         if (targetModel) {
           const reviewModel = pickReviewModel(modelOptions.ollama, effectiveModel) ?? targetModel;
@@ -1462,6 +1519,7 @@ ${script.content}
   }, [
     activeProjectId,
     activeThread,
+    appSettings.modelBehavior,
     chatModel,
     chatProvider,
     codeCanvas,

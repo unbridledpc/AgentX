@@ -880,6 +880,8 @@ def _coding_output_contract() -> str:
             "- Prefer the Python standard library unless the user asks for dependencies.",
             "- For CLI scripts, prefer argparse, validate inputs, and handle PermissionError/OSError without crashing.",
             "- Include Windows-friendly run examples when paths or commands matter.",
+            "- Validate that folder/path arguments exist before scanning or writing.",
+            "- For CSV/export tasks, include useful columns such as file_name, full_path, size_bytes, and size_gb when relevant.",
             "- Keep explanations brief and place them outside the fenced code block.",
         ]
     if behavior is not None:
@@ -929,12 +931,24 @@ def _collaborative_pipeline_requested(request: ChatRequest) -> bool:
 def _collaborative_models(request: ChatRequest, fallback_model: str) -> tuple[str, str]:
     pipeline = request.coding_pipeline
     draft_model = (getattr(pipeline, "draft_model", None) or "qwen2.5-coder:7b-4k-gpu").strip()
-    review_model = (getattr(pipeline, "review_model", None) or fallback_model or "devstral-small-2:24b-4k-gpu").strip()
+    review_model = (getattr(pipeline, "review_model", None) or "devstral-small-2:24b-4k-gpu" or fallback_model).strip()
     if not draft_model:
         draft_model = "qwen2.5-coder:7b-4k-gpu"
     if not review_model:
-        review_model = fallback_model or "devstral-small-2:24b-4k-gpu"
+        review_model = "devstral-small-2:24b-4k-gpu"
     return draft_model, review_model
+
+
+def _auto_collaborative_pipeline_requested(user_message: str) -> bool:
+    if not _looks_like_coding_request(user_message):
+        return False
+    settings = _read_settings()
+    behavior = getattr(settings, "modelBehavior", None)
+    if behavior is None or not _behavior_flag(behavior, "enabled", True):
+        return False
+    if not _behavior_flag(behavior, "codingContractEnabled", True):
+        return False
+    return _behavior_text(behavior, "codingRouting", "askFirst") == "autoDraftReview"
 
 
 def _collaborative_draft_prompt(system_prompt: str, retrieved: str, short_term: list[dict]) -> str:
@@ -964,11 +978,13 @@ def _collaborative_review_prompt(
             "Your job:",
             "- Verify the draft satisfies every user requirement.",
             "- Fix incorrect logic, missing imports, missing CLI handling, hardcoded placeholder paths, and incomplete output/export behavior.",
-            "- For CLI scripts, prefer argparse and validate user-provided paths/inputs.",
+            "- For CLI scripts, prefer argparse and validate user-provided paths/inputs with parser.error or clear error messages.",
+            "- Validate folders/paths exist before scanning, reading, or writing. Do not leave placeholder paths as the final solution.",
             "- Handle PermissionError and OSError where file access is involved.",
+            "- For CSV/export tasks, include useful columns such as file_name, full_path, size_bytes, and size_gb when relevant.",
             "- Preserve clean formatting and indentation.",
-            "- Remove duplicate code, fake transcript lines, or placeholder-only solutions.",
-            "- Return one complete final answer with production-ready code and brief run instructions.",
+            "- Remove duplicate code, fake transcript lines, Copy code labels, or placeholder-only solutions.",
+            "- Return one complete final answer with production-ready code and a brief Windows-friendly run example when commands matter.",
             "",
             f"Draft model: {draft_model}",
             f"Review/final model: {review_model}",
@@ -1019,7 +1035,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
 
             yield _stream_event("meta", {"provider": provider, "model": model, "ts": time.time()})
 
-            if provider == "ollama" and _collaborative_pipeline_requested(request):
+            if provider == "ollama" and (_collaborative_pipeline_requested(request) or _auto_collaborative_pipeline_requested(request.message)):
                 draft_model, review_model = _collaborative_models(request, model)
                 thread_id = requested_thread_id or session_tracker.get_active_thread(user_id or "")
                 if thread_id and user_id:

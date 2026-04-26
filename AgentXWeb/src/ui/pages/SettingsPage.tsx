@@ -222,6 +222,19 @@ export function SettingsPage(props: Props) {
                 <span>Enable coding contract when coding intent is detected</span>
               </label>
 
+              <label className={tokens.fieldLabel}>Coding Routing</label>
+              <select
+                className={tokens.input}
+                value={modelBehavior.codingRouting}
+                disabled={loading || !modelBehavior.enabled || !modelBehavior.codingContractEnabled}
+                onChange={(e) => updateModelBehavior({ codingRouting: e.target.value as typeof modelBehavior.codingRouting })}
+              >
+                <option value="autoDraftReview">Auto Draft + Review: skip the general model and route coding requests through Qwen → Devstral</option>
+                <option value="askFirst">Ask first: let the current model answer, then show the handoff card</option>
+                <option value="autoHeavyCoding">Auto Heavy Coding: skip the general model and use Devstral directly</option>
+                <option value="normalOnly">Normal model only: do not auto-route or show handoff cards</option>
+              </select>
+
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="flex items-center gap-2">
                   <input
