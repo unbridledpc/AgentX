@@ -1,7 +1,7 @@
 import React from "react";
 
 import type { Message } from "../../api/client";
-import { MessageActions } from "./MessageActions";
+import { MessageActions, type MessageFeedback } from "./MessageActions";
 import { MessageBubble } from "./MessageBubble";
 import { MessageContent } from "./MessageContent";
 import { languageAccentClass } from "../codeCanvas";
@@ -11,6 +11,13 @@ type Props = {
   isLastAssistant: boolean;
   verification?: { verdict: string; confidence: number; contradictions: string[] } | null;
   onQuote: (content: string) => void;
+  onEdit?: (content: string) => void;
+  onRetry?: (() => void) | null;
+  onContinue?: (() => void) | null;
+  onFeedback?: ((feedback: Exclude<MessageFeedback, null>) => void) | null;
+  onSaveScript?: (() => void) | null;
+  onAddToProject?: (() => void) | null;
+  feedback?: MessageFeedback;
   startsGroup?: boolean;
   endsGroup?: boolean;
   assistantLabel?: string;
@@ -42,6 +49,13 @@ export function ChatMessage({
   isLastAssistant,
   verification,
   onQuote,
+  onEdit,
+  onRetry = null,
+  onContinue = null,
+  onFeedback = null,
+  onSaveScript = null,
+  onAddToProject = null,
+  feedback = null,
   startsGroup = true,
   endsGroup = true,
   assistantLabel = "AgentX",
@@ -57,7 +71,7 @@ export function ChatMessage({
       : message.role === "assistant"
         ? "agentx-message-row agentx-message-row--assistant"
         : "agentx-message-row agentx-message-row--system";
-  const showAssistantActions = message.role === "assistant" && (showIdentity || endsGroup);
+  const showActions = message.role !== "system" && (showIdentity || endsGroup);
   const authorLabel = roleLabel(message.role, assistantLabel, userLabel);
 
   return (
@@ -79,12 +93,46 @@ export function ChatMessage({
               <span className="agentx-message-row__author">{authorLabel}</span>
               <span className="agentx-message-row__time">{new Date(message.ts * 1000).toLocaleTimeString()}</span>
             </div>
-            {showAssistantActions ? <MessageActions content={message.content} onQuote={onQuote} /> : null}
+            {showActions ? (
+              <MessageActions
+                role={message.role}
+                content={message.content}
+                feedback={feedback}
+                canOpenCanvas={Boolean(codeCanvasMeta && onOpenCodeCanvas)}
+                canSaveScript={message.role === "assistant" && Boolean(codeCanvasMeta || onSaveScript)}
+                canAddToProject={message.role === "assistant" && Boolean(onAddToProject)}
+                onQuote={onQuote}
+                onEdit={onEdit}
+                onRetry={onRetry ?? undefined}
+                onContinue={onContinue ?? undefined}
+                onFeedback={onFeedback ?? undefined}
+                onSaveScript={onSaveScript ?? undefined}
+                onOpenCanvas={onOpenCodeCanvas ?? undefined}
+                onAddToProject={onAddToProject ?? undefined}
+              />
+            ) : null}
           </div>
         ) : (
           <div className="agentx-message-row__meta agentx-message-row__meta--continued">
             <span className="agentx-message-row__time">{new Date(message.ts * 1000).toLocaleTimeString()}</span>
-            {showAssistantActions ? <MessageActions content={message.content} onQuote={onQuote} /> : null}
+            {showActions ? (
+              <MessageActions
+                role={message.role}
+                content={message.content}
+                feedback={feedback}
+                canOpenCanvas={Boolean(codeCanvasMeta && onOpenCodeCanvas)}
+                canSaveScript={message.role === "assistant" && Boolean(codeCanvasMeta || onSaveScript)}
+                canAddToProject={message.role === "assistant" && Boolean(onAddToProject)}
+                onQuote={onQuote}
+                onEdit={onEdit}
+                onRetry={onRetry ?? undefined}
+                onContinue={onContinue ?? undefined}
+                onFeedback={onFeedback ?? undefined}
+                onSaveScript={onSaveScript ?? undefined}
+                onOpenCanvas={onOpenCodeCanvas ?? undefined}
+                onAddToProject={onAddToProject ?? undefined}
+              />
+            ) : null}
           </div>
         )}
 

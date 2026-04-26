@@ -2130,3 +2130,31 @@ input[type="checkbox"] {
   contain: paint;
 }
 
+
+.agentx-message-actions {
+  max-width: min(100%, 72rem);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.agentx-message-row--user .agentx-message-actions {
+  justify-content: flex-start;
+}
+
+.agentx-message-actions__button {
+  white-space: nowrap;
+}
+
+.agentx-message-actions__button--active {
+  border-color: rgb(var(--agentx-accent-primary-rgb) / 0.58) !important;
+  background: rgb(var(--agentx-accent-primary-rgb) / 0.16) !important;
+  color: rgb(var(--agentx-accent-strong-rgb) / 0.96) !important;
+}
+
+@media (hover: none) {
+  .agentx-message-actions {
+    opacity: 1;
+    transform: none;
+  }
+}
+

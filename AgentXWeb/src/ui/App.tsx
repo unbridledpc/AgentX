@@ -225,6 +225,51 @@ function threadSummary(thread: Thread): ThreadSummary {
   };
 }
 
+
+type MessageFeedback = "like" | "dislike";
+type MessageFeedbackMap = Record<string, MessageFeedback>;
+const MESSAGE_FEEDBACK_KEY = "agentxweb.messageFeedback.v1";
+
+function loadMessageFeedback(): MessageFeedbackMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(MESSAGE_FEEDBACK_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: MessageFeedbackMap = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      if (value === "like" || value === "dislike") result[id] = value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function saveMessageFeedback(feedback: MessageFeedbackMap): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MESSAGE_FEEDBACK_KEY, JSON.stringify(feedback));
+  } catch {
+    // ignore local feedback persistence failures
+  }
+}
+
+function previousUserMessage(messages: Thread["messages"], messageId: string): string | null {
+  const index = messages.findIndex((message) => message.id === messageId);
+  if (index < 0) return null;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role === "user" && message.content.trim()) return message.content;
+  }
+  return null;
+}
+
+function messageScriptTitle(thread: Thread | null, messageId: string, fallback = "AgentX script"): string {
+  const threadTitle = thread?.title && thread.title !== config.threadTitleDefault ? thread.title : fallback;
+  return `${threadTitle} ${messageId.slice(0, 6)}`;
+}
+
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(() => loadAuth());
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
@@ -279,6 +324,7 @@ export function App() {
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null);
   const activeScript = useMemo(() => scripts.find((script) => script.id === activeScriptId) ?? scripts[0] ?? null, [activeScriptId, scripts]);
   const [scriptDraft, setScriptDraft] = useState<{ title: string; content: string; language: string }>({ title: "", content: "", language: "text" });
+  const [messageFeedback, setMessageFeedback] = useState<MessageFeedbackMap>(() => loadMessageFeedback());
 
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -328,6 +374,10 @@ export function App() {
   useEffect(() => {
     saveCodeCanvasState(codeCanvas);
   }, [codeCanvas]);
+
+  useEffect(() => {
+    saveMessageFeedback(messageFeedback);
+  }, [messageFeedback]);
 
   useEffect(() => {
     if (!isMobile) setNavOpen(false);
@@ -1064,8 +1114,8 @@ ${script.content}
     controller.abort();
   }, []);
 
-  const send = useCallback(async () => {
-    const text = draft.trim();
+  const send = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? draft).trim();
     if (!text || sending) return;
 
     if (!statusOk) {
@@ -1265,6 +1315,132 @@ ${script.content}
     setSystemMessage,
     statusOk,
   ]);
+
+
+
+  const editMessageIntoComposer = useCallback((content: string) => {
+    setDraft(content);
+    setActiveView("chat");
+    scheduleComposerFocus({ force: true });
+  }, [scheduleComposerFocus]);
+
+  const retryMessage = useCallback((messageId: string) => {
+    if (sending) {
+      setSystemMessage("Wait for the current response to finish or stop it before retrying.");
+      return;
+    }
+    if (!activeThread) return;
+    const message = activeThread.messages.find((item) => item.id === messageId);
+    const prompt = message?.role === "user" ? message.content : previousUserMessage(activeThread.messages, messageId);
+    if (!prompt?.trim()) {
+      setSystemMessage("Could not find a user prompt to retry from this message.");
+      return;
+    }
+    void send(prompt);
+  }, [activeThread, send, sending, setSystemMessage]);
+
+  const continueConversation = useCallback(() => {
+    if (sending) {
+      setSystemMessage("Wait for the current response to finish or stop it before continuing.");
+      return;
+    }
+    void send("Continue from where you left off.");
+  }, [send, sending, setSystemMessage]);
+
+  const setMessageFeedbackValue = useCallback((messageId: string, feedback: MessageFeedback) => {
+    setMessageFeedback((prev) => {
+      const next = { ...prev };
+      if (next[messageId] === feedback) {
+        delete next[messageId];
+      } else {
+        next[messageId] = feedback;
+      }
+      return next;
+    });
+  }, []);
+
+  const saveMessageAsScript = useCallback(async (messageId: string) => {
+    if (!activeThread) return;
+    const message = activeThread.messages.find((item) => item.id === messageId);
+    if (!message || message.role !== "assistant") return;
+
+    const source = codeCanvas.sources[messageId];
+    if (source?.content.trim()) {
+      await saveGeneratedScript({
+        title: source.title,
+        language: source.language,
+        content: source.content,
+        sourceThreadId: activeThread.id,
+        sourceMessageId: messageId,
+      });
+      setSystemMessage("Saved response code to Scripts.");
+      return;
+    }
+
+    const detected = detectCodeCanvas({
+      prompt: previousUserMessage(activeThread.messages, messageId) ?? activeThread.title,
+      content: message.content,
+      messageId,
+      threadTitle: activeThread.title,
+    });
+
+    if (!detected?.code.trim()) {
+      setSystemMessage("No script/code block was found in that response.");
+      return;
+    }
+
+    await saveGeneratedScript({
+      title: detected.title || messageScriptTitle(activeThread, messageId),
+      language: detected.language,
+      content: detected.code,
+      sourceThreadId: activeThread.id,
+      sourceMessageId: messageId,
+    });
+    openCodeCanvasFromReply({
+      code: detected.code,
+      language: detected.language,
+      sourceMessageId: messageId,
+      title: detected.title,
+      companion: detected.companion,
+      shouldOpen: false,
+    });
+    setSystemMessage("Saved response code to Scripts.");
+  }, [activeThread, codeCanvas.sources, openCodeCanvasFromReply, saveGeneratedScript, setSystemMessage]);
+
+  const addActiveChatToProject = useCallback(async () => {
+    if (!activeThread?.id) {
+      setSystemMessage("Open a chat before adding it to a project.");
+      return;
+    }
+
+    let targetProjectId = activeThread.project_id ?? activeProjectId;
+    let projectName = projects.find((project) => project.id === targetProjectId)?.name ?? "project";
+
+    if (!targetProjectId) {
+      const defaultName = projects.length === 1 ? projects[0].name : "";
+      const entered = (window.prompt(
+        projects.length
+          ? `Add this chat to which project? Existing: ${projects.map((project) => project.name).join(", ")}`
+          : "Project name to create?",
+        defaultName,
+      ) ?? "").trim();
+      if (!entered) return;
+
+      let project = projects.find((item) => item.name.toLowerCase() === entered.toLowerCase()) ?? null;
+      if (!project) {
+        project = await createProjectRecord(entered);
+        setProjects((prev) => [project!, ...prev.filter((item) => item.id !== project!.id)]);
+      }
+      targetProjectId = project.id;
+      projectName = project.name;
+    }
+
+    const updated = await updateThreadProject(activeThread.id, targetProjectId);
+    setActiveThread(updated);
+    setThreads((prev) => [threadSummary(updated), ...prev.filter((thread) => thread.id !== updated.id)]);
+    setActiveProjectId(targetProjectId);
+    setSystemMessage(`Added this chat to ${projectName}.`);
+  }, [activeProjectId, activeThread, projects, setSystemMessage]);
 
   const fetchTools = useCallback(async () => {
     if (toolSchemaLoadedRef.current) return;
@@ -2010,6 +2186,13 @@ ${script.content}
                               isLastAssistant={isLastAssistant}
                               verification={lastVerification}
                               onQuote={quoteIntoComposer}
+                              onEdit={editMessageIntoComposer}
+                              onRetry={() => retryMessage(m.id)}
+                              onContinue={m.role === "assistant" ? continueConversation : null}
+                              onFeedback={m.role === "assistant" ? (feedback) => setMessageFeedbackValue(m.id, feedback) : null}
+                              feedback={messageFeedback[m.id] ?? null}
+                              onSaveScript={m.role === "assistant" ? () => void saveMessageAsScript(m.id) : null}
+                              onAddToProject={m.role === "assistant" ? () => void addActiveChatToProject() : null}
                               startsGroup={!prev || prev.role !== m.role}
                               endsGroup={!next || next.role !== m.role}
                               assistantLabel={assistantDisplayName}
