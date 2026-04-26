@@ -46,12 +46,19 @@ class ArtifactContextRequest(BaseModel):
     label: str | None = None
 
 
+class CodingPipelineRequest(BaseModel):
+    mode: str = "single"
+    draft_model: str | None = None
+    review_model: str | None = None
+
+
 class ChatRequest(BaseModel):
     message: str
     thread_id: str | None = None
     response_mode: str = "chat"
     unsafe_enabled: bool | None = None
     active_artifact: ArtifactContextRequest | None = None
+    coding_pipeline: CodingPipelineRequest | None = None
 
 
 class RetrievedChunk(BaseModel):
@@ -912,6 +919,71 @@ def _system_prompt_for_request(response_mode: str, user_message: str) -> str:
     return system_prompt
 
 
+def _collaborative_pipeline_requested(request: ChatRequest) -> bool:
+    pipeline = request.coding_pipeline
+    if pipeline is None:
+        return False
+    return (pipeline.mode or "").strip().lower() in {"draft_review", "collaborative"}
+
+
+def _collaborative_models(request: ChatRequest, fallback_model: str) -> tuple[str, str]:
+    pipeline = request.coding_pipeline
+    draft_model = (getattr(pipeline, "draft_model", None) or "qwen2.5-coder:7b-4k-gpu").strip()
+    review_model = (getattr(pipeline, "review_model", None) or fallback_model or "devstral-small-2:24b-4k-gpu").strip()
+    if not draft_model:
+        draft_model = "qwen2.5-coder:7b-4k-gpu"
+    if not review_model:
+        review_model = fallback_model or "devstral-small-2:24b-4k-gpu"
+    return draft_model, review_model
+
+
+def _collaborative_draft_prompt(system_prompt: str, retrieved: str, short_term: list[dict]) -> str:
+    draft_system = (
+        system_prompt
+        + "\n\nCollaborative coding pipeline stage 1: fast draft. "
+        + "Create a complete first-pass implementation that satisfies the user request. "
+        + "Prefer clear, runnable code over explanation. The reviewer model will improve it next."
+    )
+    return _ollama_prompt(draft_system, retrieved, short_term)
+
+
+def _collaborative_review_prompt(
+    *,
+    system_prompt: str,
+    retrieved: str,
+    original_request: str,
+    draft_model: str,
+    review_model: str,
+    draft: str,
+) -> str:
+    review_user = "\n".join(
+        [
+            "You are the code reviewer and finalizer in AgentX Collaborative Coding mode.",
+            "",
+            "You will receive the original user request and a first-draft implementation from another model.",
+            "Your job:",
+            "- Verify the draft satisfies every user requirement.",
+            "- Fix incorrect logic, missing imports, missing CLI handling, hardcoded placeholder paths, and incomplete output/export behavior.",
+            "- For CLI scripts, prefer argparse and validate user-provided paths/inputs.",
+            "- Handle PermissionError and OSError where file access is involved.",
+            "- Preserve clean formatting and indentation.",
+            "- Remove duplicate code, fake transcript lines, or placeholder-only solutions.",
+            "- Return one complete final answer with production-ready code and brief run instructions.",
+            "",
+            f"Draft model: {draft_model}",
+            f"Review/final model: {review_model}",
+            "",
+            "Original user request:",
+            original_request,
+            "",
+            "First-draft implementation:",
+            draft,
+        ]
+    )
+    review_system = system_prompt + "\n\nCollaborative coding pipeline stage 2: review, fix, and finalize."
+    return _ollama_prompt(review_system, retrieved, [{"role": "user", "content": review_user}])
+
+
 def _stream_event(event: str, payload: dict | None = None) -> str:
     data = {"event": event}
     if payload:
@@ -946,6 +1018,102 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                 model = (thread.chat_model or model or "stub").strip()
 
             yield _stream_event("meta", {"provider": provider, "model": model, "ts": time.time()})
+
+            if provider == "ollama" and _collaborative_pipeline_requested(request):
+                draft_model, review_model = _collaborative_models(request, model)
+                thread_id = requested_thread_id or session_tracker.get_active_thread(user_id or "")
+                if thread_id and user_id:
+                    ensure_thread_owner(thread_id, owner_id=user_id)
+                short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
+                retrieved = _build_retrieval_context(request.message)
+
+                if config.web_enabled:
+                    urls = re.findall(r"https?://\S+", request.message or "")
+                    urls = [u.rstrip(").,;!\"'") for u in urls][:3]
+                    web_parts: list[str] = []
+                    for u in urls:
+                        try:
+                            res = fetch_text(u, policy=_web_policy())
+                            web_parts.append(f"URL: {res.url}\n{res.text[:4000]}")
+                        except Exception:
+                            continue
+                    if web_parts:
+                        retrieved = (retrieved + "\n\n" if retrieved else "") + "\n\n".join(web_parts)
+
+                settings = _read_settings()
+                base_url = normalize_ollama_base_url(effective_ollama_base_url(settings))
+                timeout_s = effective_ollama_request_timeout_s(settings)
+                system_prompt = _system_prompt_for_request(response_mode, request.message)
+
+                yield _stream_event(
+                    "meta",
+                    {
+                        "stage": "draft",
+                        "provider": "ollama",
+                        "model": draft_model,
+                        "review_model": review_model,
+                        "ts": time.time(),
+                    },
+                )
+                draft_prompt = _collaborative_draft_prompt(system_prompt, retrieved, short_term)
+                draft = ollama_generate(
+                    cfg=OllamaConfig(
+                        base_url=base_url,
+                        model=draft_model,
+                        timeout_s=timeout_s,
+                        max_tool_iters=max(1, int(getattr(config, "ollama_tool_max_iters", 4))),
+                    ),
+                    prompt=draft_prompt,
+                )
+                draft = finalize_response_text(draft, response_mode="chat")
+                if not draft:
+                    raise HTTPException(status_code=502, detail=f"Draft model {draft_model} returned an empty response.")
+
+                yield _stream_event(
+                    "meta",
+                    {
+                        "stage": "review",
+                        "provider": "ollama",
+                        "model": review_model,
+                        "draft_model": draft_model,
+                        "ts": time.time(),
+                    },
+                )
+                review_prompt = _collaborative_review_prompt(
+                    system_prompt=system_prompt,
+                    retrieved=retrieved,
+                    original_request=request.message,
+                    draft_model=draft_model,
+                    review_model=review_model,
+                    draft=draft,
+                )
+                chunks: list[str] = []
+                for chunk in ollama_generate_stream(
+                    cfg=OllamaConfig(
+                        base_url=base_url,
+                        model=review_model,
+                        timeout_s=timeout_s,
+                        max_tool_iters=max(1, int(getattr(config, "ollama_tool_max_iters", 4))),
+                    ),
+                    prompt=review_prompt,
+                ):
+                    if first_token_at is None and chunk:
+                        first_token_at = time.perf_counter()
+                    chunks.append(chunk)
+                    yield _stream_event("delta", {"content": chunk})
+                content = finalize_response_text("".join(chunks), response_mode=response_mode)
+                if not content:
+                    raise HTTPException(status_code=502, detail=f"Review model {review_model} returned an empty response.")
+                metrics = _response_metrics(
+                    started_at=request_started_at,
+                    first_token_at=first_token_at,
+                    provider="ollama",
+                    model=f"{draft_model} -> {review_model}",
+                    user_message=request.message,
+                    content=content,
+                )
+                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time(), "response_metrics": metrics.model_dump()})
+                return
 
             if provider == "ollama" and not config.ollama_tools_enabled:
                 if not model or model == "stub":

@@ -44,7 +44,7 @@ export type ChatResponse = {
 };
 
 export type ChatStreamEvent =
-  | { event: "meta"; provider?: string; model?: string; ts?: number }
+  | { event: "meta"; provider?: string; model?: string; ts?: number; stage?: string; draft_model?: string; review_model?: string }
   | { event: "delta"; content: string }
   | ((ChatResponse & { event: "done" }) & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null })
   | { event: "error"; message: string; detail?: unknown; status_code?: number };
@@ -206,6 +206,13 @@ export type ArtifactContextRequest = {
   title?: string | null;
   label?: string | null;
 };
+
+export type CodingPipelineRequest = {
+  mode: "single" | "draft_review" | "collaborative";
+  draft_model?: string | null;
+  review_model?: string | null;
+};
+
 export type WebPolicySessionResponse = { ok: boolean; ts: number; audit_tail: AuditEntry[] };
 
 export type ThreadSummary = { id: string; title: string; updated_at: number; chat_provider?: string | null; chat_model?: string | null; project_id?: string | null };
@@ -487,6 +494,7 @@ export async function sendChatMessage(
   responseMode: ResponseMode = "chat",
   unsafeEnabled?: boolean,
   activeArtifact?: ArtifactContextRequest | null,
+  codingPipeline?: CodingPipelineRequest | null,
   signal?: AbortSignal
 ): Promise<ChatResponse & { retrieved?: RetrievedChunk[] | null; audit_tail?: AuditEntry[] | null }> {
   const body: Record<string, unknown> = { message };
@@ -494,6 +502,7 @@ export async function sendChatMessage(
   if (responseMode) body.response_mode = responseMode;
   if (typeof unsafeEnabled === "boolean") body.unsafe_enabled = unsafeEnabled;
   if (activeArtifact) body.active_artifact = activeArtifact;
+  if (codingPipeline) body.coding_pipeline = codingPipeline;
   const res = await fetch(`${config.apiBase}/v1/chat`, {
     method: "POST",
     headers: jsonHeaders(),
@@ -510,6 +519,7 @@ export async function streamChatMessage(
     responseMode?: ResponseMode;
     unsafeEnabled?: boolean;
     activeArtifact?: ArtifactContextRequest | null;
+    codingPipeline?: CodingPipelineRequest | null;
     signal?: AbortSignal;
     onEvent: (event: ChatStreamEvent) => void;
   }
@@ -519,6 +529,7 @@ export async function streamChatMessage(
   if (args.responseMode) body.response_mode = args.responseMode;
   if (typeof args.unsafeEnabled === "boolean") body.unsafe_enabled = args.unsafeEnabled;
   if (args.activeArtifact) body.active_artifact = args.activeArtifact;
+  if (args.codingPipeline) body.coding_pipeline = args.codingPipeline;
 
   const res = await fetch(`${config.apiBase}/v1/chat/stream`, {
     method: "POST",

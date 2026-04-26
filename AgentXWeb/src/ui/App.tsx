@@ -34,6 +34,7 @@ import {
   type ScriptRecord,
   type ProviderErrorDetail,
   type AgentXSettings,
+  type CodingPipelineRequest,
 } from "../api/client";
 import { config } from "../config";
 import { Panel } from "./components/Panel";
@@ -213,27 +214,60 @@ type HandoffSuggestion = {
   model: string;
   originalPrompt: string;
   brainstorm: string;
+  draftModel?: string | null;
+  reviewModel?: string | null;
 };
 
 const CODING_HANDOFF_RE = /\b(code this|build this|create this|generate this|make (?:a |an )?(?:script|app|tool|program)|write (?:a |an )?(?:script|app|tool|program)|turn this into code|implement this|i would like you to code|i want you to code|can you code|create an? app|build an? app)\b/i;
 
 const HEAVY_CODING_MODEL_PRIORITY = [
   "devstral-small-2:24b-4k-gpu",
+  "devstral-small-2:24b-2k",
   "qwen2.5-coder:7b-4k-gpu",
   "qwen35-heretic-neocode:9b-q6-4k-gpu",
   "dolphincoder:15b-4k-gpu",
+];
+
+const FAST_DRAFT_MODEL_PRIORITY = [
+  "qwen2.5-coder:7b-4k-gpu",
+  "devstral-small-2:24b-4k-gpu",
+  "devstral-small-2:24b-2k",
+  "dolphincoder:7b-4k-gpu",
+];
+
+const REVIEW_MODEL_PRIORITY = [
+  "devstral-small-2:24b-4k-gpu",
+  "devstral-small-2:24b-2k",
+  "qwen2.5-coder:7b-4k-gpu",
 ];
 
 function shouldSuggestCodingHandoff(text: string): boolean {
   return CODING_HANDOFF_RE.test(text || "");
 }
 
-function pickHeavyCodingModel(models: string[], currentModel: string): string | null {
+function pickPriorityModel(models: string[], priority: string[], currentModel = "", allowCurrent = false): string | null {
   const available = new Set(models || []);
-  for (const model of HEAVY_CODING_MODEL_PRIORITY) {
-    if (available.has(model) && model !== currentModel) return model;
+  for (const model of priority) {
+    if (available.has(model) && (allowCurrent || model !== currentModel)) return model;
   }
-  return (models || []).find((model) => /devstral|coder|code/i.test(model) && model !== currentModel) ?? null;
+  return null;
+}
+
+function pickHeavyCodingModel(models: string[], currentModel: string): string | null {
+  return pickPriorityModel(models, HEAVY_CODING_MODEL_PRIORITY, currentModel)
+    ?? (models || []).find((model) => /devstral|coder|code/i.test(model) && model !== currentModel)
+    ?? null;
+}
+
+function pickFastDraftModel(models: string[], reviewModel: string | null): string | null {
+  return pickPriorityModel(models, FAST_DRAFT_MODEL_PRIORITY, reviewModel || "")
+    ?? (models || []).find((model) => /qwen|coder|code/i.test(model) && model !== reviewModel)
+    ?? null;
+}
+
+function pickReviewModel(models: string[], currentModel: string): string | null {
+  return pickPriorityModel(models, REVIEW_MODEL_PRIORITY, currentModel, true)
+    ?? pickHeavyCodingModel(models, currentModel);
 }
 
 function buildHandoffPrompt(suggestion: HandoffSuggestion): string {
@@ -1202,7 +1236,10 @@ ${script.content}
     controller.abort();
   }, []);
 
-  const send = useCallback(async (overrideText?: string, overrideSelection?: { provider: string; model: string; suppressHandoff?: boolean }) => {
+  const send = useCallback(async (
+    overrideText?: string,
+    overrideSelection?: { provider: string; model: string; suppressHandoff?: boolean; codingPipeline?: CodingPipelineRequest | null; assistantLabel?: string }
+  ) => {
     const text = (overrideText ?? draft).trim();
     if (!text || sending) return;
 
@@ -1293,7 +1330,7 @@ ${script.content}
 
       const controller = new AbortController();
       activeSendAbortRef.current = controller;
-      const activeModelLabel = effectiveModel || "AgentX";
+      const activeModelLabel = overrideSelection?.assistantLabel || effectiveModel || "AgentX";
       const localAssistant = {
         id: createClientId("assistant"),
         role: "assistant" as const,
@@ -1311,6 +1348,7 @@ ${script.content}
         responseMode: "chat",
         unsafeEnabled: Boolean(unsafeStatus?.unsafe_enabled),
         activeArtifact: buildActiveCanvasArtifact(codeCanvas),
+        codingPipeline: overrideSelection?.codingPipeline ?? null,
         signal: controller.signal,
         onEvent: (event) => {
           if (event.event === "delta") {
@@ -1381,11 +1419,15 @@ ${script.content}
       if (!overrideSelection?.suppressHandoff && shouldSuggestCodingHandoff(text)) {
         const targetModel = pickHeavyCodingModel(modelOptions.ollama, effectiveModel);
         if (targetModel) {
+          const reviewModel = pickReviewModel(modelOptions.ollama, effectiveModel) ?? targetModel;
+          const draftModel = pickFastDraftModel(modelOptions.ollama, reviewModel);
           setHandoffSuggestion({
             provider: "ollama",
             model: targetModel,
             originalPrompt: text,
             brainstorm: reply.content,
+            draftModel,
+            reviewModel,
           });
         }
       }
@@ -1442,6 +1484,26 @@ ${script.content}
     if (!handoffSuggestion || sending) return;
     const prompt = buildHandoffPrompt(handoffSuggestion);
     const selection = { provider: handoffSuggestion.provider, model: handoffSuggestion.model, suppressHandoff: true };
+    setHandoffSuggestion(null);
+    void send(prompt, selection);
+  }, [handoffSuggestion, send, sending]);
+
+  const acceptCollaborativeCodingSuggestion = useCallback(() => {
+    if (!handoffSuggestion || sending) return;
+    const draftModel = handoffSuggestion.draftModel || "qwen2.5-coder:7b-4k-gpu";
+    const reviewModel = handoffSuggestion.reviewModel || handoffSuggestion.model || "devstral-small-2:24b-4k-gpu";
+    const prompt = buildHandoffPrompt(handoffSuggestion);
+    const selection = {
+      provider: handoffSuggestion.provider,
+      model: reviewModel,
+      suppressHandoff: true,
+      assistantLabel: `${draftModel} → ${reviewModel}`,
+      codingPipeline: {
+        mode: "draft_review",
+        draft_model: draftModel,
+        review_model: reviewModel,
+      } satisfies CodingPipelineRequest,
+    };
     setHandoffSuggestion(null);
     void send(prompt, selection);
   }, [handoffSuggestion, send, sending]);
@@ -2382,12 +2444,15 @@ ${script.content}
                       <div>
                         <div className="agentx-handoff-card__title">Coding intent detected</div>
                         <div className="agentx-handoff-card__copy">
-                          Hand this brainstorm to <strong>{handoffSuggestion.model}</strong> for implementation?
+                          Use <strong>{handoffSuggestion.model}</strong> directly, or let <strong>{handoffSuggestion.draftModel || "Qwen"}</strong> draft and <strong>{handoffSuggestion.reviewModel || handoffSuggestion.model}</strong> review/finalize.
                         </div>
                       </div>
                       <div className="agentx-handoff-card__actions">
-                        <button className={tokens.button} type="button" disabled={sending} onClick={acceptHandoffSuggestion}>
-                          Use Heavy Coding
+                        <button className={tokens.button} type="button" disabled={sending} onClick={acceptCollaborativeCodingSuggestion}>
+                          Draft + Review
+                        </button>
+                        <button className={tokens.buttonSecondary} type="button" disabled={sending} onClick={acceptHandoffSuggestion}>
+                          Heavy Coding Only
                         </button>
                         <button className={tokens.buttonSecondary} type="button" onClick={() => setHandoffSuggestion(null)}>
                           Dismiss
