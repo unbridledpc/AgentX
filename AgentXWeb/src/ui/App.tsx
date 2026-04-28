@@ -53,6 +53,7 @@ import { createClientId } from "./clientId";
 import { AgentXDropdown, type AgentXDropdownOption } from "./components/AgentXDropdown";
 import { theme } from "./theme";
 import { CodeCanvas } from "./components/CodeCanvas";
+import { GitHubUpdateTicker } from "./components/GitHubUpdateTicker";
 import { defaultCodeCanvasState, detectCodeCanvas, languageLabel, loadCodeCanvasState, normalizeCodeCanvasLanguage, saveCodeCanvasState, type CodeCanvasState } from "./codeCanvas";
 import { applyPendingLayoutToSettings, clearPendingLayoutSave, loadPendingLayoutSave, pendingLayoutChangedEventName } from "./layoutPersistence";
 import { buildSendFailureMessage, isAbortError, restoreDraftAfterSendFailure, restoreDraftAfterStop, rollbackOptimisticThread } from "./chatSend";
@@ -2250,6 +2251,7 @@ ${script.content}
 
         <Panel className={theme.shell.mainPanel}>
           {layoutSettings.showHeader ? (
+          <>
           <div className={theme.shell.topBar}>
             <div className="flex min-w-0 items-start gap-2">
               {isMobile && layoutSettings.showSidebar ? (
@@ -2343,6 +2345,8 @@ ${script.content}
               ) : null}
             </div>
           </div>
+            <GitHubUpdateTicker />
+                    </>
           ) : null}
 
           {activeView === "settings" || activeView === "customization" ? (

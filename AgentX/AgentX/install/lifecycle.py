@@ -1,0 +1,1796 @@
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+import importlib
+import re
+import venv
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+import shutil
+from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
+
+from agentx.install.bootstrap import (
+    bootstrap_app_root_record_path,
+    bootstrap_python_path,
+    default_user_launcher_path,
+    read_bootstrap_app_root,
+    validate_app_bundle,
+    write_bootstrap_launcher,
+)
+from agentx.install.deps import dependency_report, install_target_for_config, missing_dependency_messages, profile_extra_name, required_dependency_packages
+from agentx.install.local_profile import resolve_local_profile
+from agentx.install.models import InstallConfig, InstallPaths, InstallProfile, ServiceMode
+from agentx.install.ollama import probe_ollama_provider
+from agentx.install.platform import detect_platform
+from agentx.install.store import default_install_config_path, load_install_config, save_install_config
+
+
+_WINDOWS_DRIVE_PATH_RE = r"(?i)\b[a-z]:[\\/]"
+
+
+def compute_install_paths(config: InstallConfig) -> InstallPaths:
+    runtime_root = config.runtime_root
+    return InstallPaths(
+        app_root=config.app_root,
+        runtime_root=runtime_root,
+        config_dir=runtime_root / "config",
+        config_path=config.config_path,
+        extensions_dir=runtime_root / "extensions",
+        builtin_plugins_dir=config.app_root / "AgentX" / "plugins",
+        runtime_plugins_dir=runtime_root / "extensions" / "plugins",
+        builtin_skills_dir=config.app_root / "AgentX" / "skills",
+        runtime_skills_dir=runtime_root / "extensions" / "skills",
+        data_dir=runtime_root / "data",
+        memory_dir=runtime_root / "memory",
+        logs_dir=runtime_root / "logs",
+        audit_dir=runtime_root / "audit",
+        cache_dir=runtime_root / "cache",
+        temp_dir=runtime_root / "tmp",
+        run_dir=runtime_root / "run",
+        work_dir=config.working_dir,
+        plugins_state_dir=runtime_root / "state" / "plugins",
+        skills_state_dir=runtime_root / "state" / "skills",
+        web_runtime_dir=runtime_root / "state" / "web",
+        api_data_dir=runtime_root / "data" / "api",
+        lifecycle_dir=runtime_root / "state" / "lifecycle",
+        runtime_bin_dir=runtime_root / "bin",
+        web_config_path=runtime_root / "state" / "web" / "agentxweb.config.js",
+        api_pid_path=runtime_root / "run" / "agentx-api.pid",
+        web_pid_path=runtime_root / "run" / "agentx-web.pid",
+        api_log_path=runtime_root / "logs" / "api.log",
+        web_log_path=runtime_root / "logs" / "web.log",
+        profile_path=runtime_root / "config" / "profile.json",
+        runtime_venv_dir=runtime_root / "venv",
+        runtime_python_path=(runtime_root / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")),
+        install_log_path=runtime_root / "logs" / "install.log",
+        agentx_launcher_path=runtime_root / "bin" / ("agentx.cmd" if os.name == "nt" else "agentx"),
+    )
+
+
+def canonical_user_launcher_path() -> Path:
+    return default_user_launcher_path(command_name=("agentx.cmd" if os.name == "nt" else "agentx"))
+
+
+def compatibility_user_launcher_path() -> Path:
+    return default_user_launcher_path(command_name=("sol.cmd" if os.name == "nt" else "sol"))
+
+
+def nexai_user_launcher_path() -> Path:
+    return default_user_launcher_path(command_name=("nexai.cmd" if os.name == "nt" else "nexai"))
+
+
+def canonical_bootstrap_fallback() -> str:
+    return f"{bootstrap_python_path()} -m agentx"
+
+
+def _resolved_path(path: Path) -> Path:
+    return path.expanduser().resolve(strict=False)
+
+
+def load_installation(path: Path | None = None) -> InstallConfig:
+    return load_install_config(path)
+
+
+def write_installation(config: InstallConfig, path: Path | None = None) -> Path:
+    return save_install_config(config, path)
+
+
+def _toml_list(values: list[str]) -> str:
+    return "[" + ", ".join(json.dumps(v) for v in values) + "]"
+
+
+def _profile_allowed_roots(config: InstallConfig, paths: InstallPaths) -> list[str]:
+    roots = [str(paths.work_dir), str(paths.runtime_root)]
+    if config.profile == InstallProfile.DEVELOPER:
+        roots.append(str(paths.app_root))
+    return roots
+
+
+def generate_runtime_config(config: InstallConfig) -> str:
+    paths = compute_install_paths(config)
+    allowed_roots = _profile_allowed_roots(config, paths)
+    allow_exec = ["python", "git"]
+    if config.profile == InstallProfile.DEVELOPER:
+        allow_exec.extend(["npm", "node"])
+    web_enabled = "true" if config.web.enabled else "false"
+    api_enabled = "true" if config.api.enabled else "false"
+    auth_enabled = "true" if config.auth.enabled else "false"
+    content = f"""# Generated by `agentx setup`.
+mode = "supervised"
+
+[agent]
+mode = "supervised"
+max_steps = 8
+refuse_unattended = true
+auto_tools = true
+auto_web_verify = false
+
+[audit]
+log_path = "audit/agentx_audit.jsonl"
+
+[memory]
+enabled = true
+backend = "sqlite_fts"
+db_path = "memory/rag.sqlite3"
+events_path = "memory/memory_events.jsonl"
+chunk_chars = 1200
+chunk_overlap_chars = 200
+k_default = 8
+
+[paths]
+data_dir = "data"
+logs_dir = "logs"
+runtime_dir = "state"
+run_dir = "run"
+cache_dir = "cache"
+temp_dir = "tmp"
+audit_dir = "audit"
+memory_dir = "memory"
+working_dir = {json.dumps(str(paths.work_dir))}
+plugins_dir = {json.dumps(str(paths.builtin_plugins_dir))}
+skills_dir = {json.dumps(str(paths.builtin_skills_dir))}
+user_plugins_dir = {json.dumps(str(paths.runtime_plugins_dir))}
+user_skills_dir = {json.dumps(str(paths.runtime_skills_dir))}
+features_dir = {json.dumps(str(paths.app_root / "AgentX" / "Server" / "data" / "features"))}
+api_dir = {json.dumps(str(paths.app_root / "apps" / "api"))}
+web_dir = {json.dumps(str(paths.app_root / "AgentXWeb"))}
+web_dist_dir = {json.dumps(str(paths.app_root / "AgentXWeb" / "dist"))}
+agentxweb_dir = {json.dumps(str(paths.app_root / "AgentXWeb"))}
+desktop_dir = {json.dumps(str(paths.app_root / "apps" / "desktop"))}
+
+[fs]
+allowed_roots = {_toml_list(allowed_roots)}
+deny_drive_letters = []
+denied_substrings = [".ssh", ".gnupg"]
+denied_path_patterns = ['(?i)(^|[\\\\/])\\\\.ssh([\\\\/]|$)', '(?i)(^|[\\\\/])\\\\.gnupg([\\\\/]|$)']
+max_read_bytes = 200000
+max_write_bytes = 200000
+max_delete_count = 10
+
+[exec]
+enabled = true
+timeout_s = 30
+allowed_commands = {_toml_list(allow_exec)}
+allow_shell = false
+deny_extensions = [".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs"]
+
+[web]
+enabled = {web_enabled}
+allow_all_hosts = false
+allowed_host_suffixes = []
+block_private_networks = true
+timeout_s = 10
+max_bytes = 400000
+user_agent = "AgentX/0.1"
+max_redirects = 5
+max_search_results = 5
+
+[web.policy]
+allow_all_hosts = false
+allowed_suffixes = []
+allowed_domains = []
+denied_domains = []
+
+[tibia.sources]
+enabled = false
+default_delay_ms = 500
+max_threads = 5
+max_pages_per_thread = 5
+
+[rag]
+enabled = true
+db_path = "memory/rag.sqlite3"
+top_k = 5
+chunk_chars = 1200
+chunk_overlap_chars = 200
+
+[voice]
+enabled = false
+wake_word_enabled = false
+wake_word = "agentx"
+mic_device = ""
+
+[auth]
+enabled = {auth_enabled}
+
+[vision]
+enabled = false
+device_index = 0
+
+[llm]
+provider = {json.dumps(config.model_provider)}
+
+[llm.openai]
+api_key_env = "AGENTX_OPENAI_API_KEY"
+base_url = "https://api.openai.com"
+model = "gpt-4o-mini"
+timeout_s = 20
+max_tool_iters = 4
+
+[llm.ollama]
+base_url = {json.dumps(config.ollama_base_url)}
+model = "llama3.2"
+timeout_s = 30
+max_tool_iters = 4
+
+[install]
+profile = {json.dumps(config.profile.value)}
+api_enabled = {api_enabled}
+web_enabled = {web_enabled}
+auth_enabled = {auth_enabled}
+"""
+    return content
+
+
+_BIND_ALL_HOSTS = {"0.0.0.0", "::", "[::]"}
+
+
+def _detect_primary_interface_ip() -> str | None:
+    candidates: list[str] = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(0.25)
+            sock.connect(("8.8.8.8", 80))
+            candidates.append(sock.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        candidates.extend(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    for candidate in candidates:
+        if candidate and not candidate.startswith("127."):
+            return candidate
+    return None
+
+
+def _format_url_host(host: str) -> str:
+    host = (host or "").strip()
+    if not host:
+        return "127.0.0.1"
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        return f"[{host}]"
+    return host
+
+
+def browser_host_for_bind_host(host: str) -> str:
+    normalized = (host or "").strip().lower()
+    if normalized in _BIND_ALL_HOSTS:
+        return _detect_primary_interface_ip() or "127.0.0.1"
+    return _format_url_host(host or "127.0.0.1")
+
+
+def browser_api_base_url(config: InstallConfig) -> str:
+    return f"http://{browser_host_for_bind_host(config.api.host)}:{config.api.port}"
+
+
+def browser_web_origin(config: InstallConfig) -> str:
+    return f"http://{browser_host_for_bind_host(config.web.host)}:{config.web.port}"
+
+
+def write_web_config(config: InstallConfig, paths: InstallPaths) -> None:
+    api_base = browser_api_base_url(config)
+    content = (
+        "globalThis.__AGENTXWEB_CONFIG__ = " + json.dumps({"apiBase": api_base}, ensure_ascii=False) + ";\n"
+        "window.__AGENTXWEB_CONFIG__ = globalThis.__AGENTXWEB_CONFIG__;\n"
+        "window.AGENTX_CONFIG = " + json.dumps({"apiBaseUrl": api_base}, ensure_ascii=False) + ";\n"
+    )
+    paths.web_config_path.write_text(content, encoding="utf-8")
+
+
+def ensure_installation_ready(config: InstallConfig) -> InstallPaths:
+    paths = compute_install_paths(config)
+    for directory in (
+        paths.runtime_root,
+        paths.config_dir,
+        paths.extensions_dir,
+        paths.runtime_plugins_dir,
+        paths.runtime_skills_dir,
+        paths.data_dir,
+        paths.memory_dir,
+        paths.logs_dir,
+        paths.audit_dir,
+        paths.cache_dir,
+        paths.temp_dir,
+        paths.run_dir,
+        paths.work_dir,
+        paths.plugins_state_dir,
+        paths.skills_state_dir,
+        paths.web_runtime_dir,
+        paths.api_data_dir,
+        paths.lifecycle_dir,
+        paths.runtime_bin_dir,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    _append_log_message(paths.install_log_path, f"Preparing installation for profile={config.profile.value} runtime_root={paths.runtime_root}")
+    paths.config_path.write_text(generate_runtime_config(config), encoding="utf-8")
+    write_web_config(config, paths)
+    _ensure_runtime_python_environment(config, paths)
+    _assert_managed_runtime_ready(config, paths)
+    _append_log_message(paths.install_log_path, f"Managed runtime ready at {paths.runtime_python_path}")
+    if config.service_mode != ServiceMode.NONE:
+        install_service_files(config, paths)
+    return paths
+
+
+def _bundle_pyproject_path(config: InstallConfig) -> Path:
+    return config.app_root / "AgentX" / "pyproject.toml"
+
+
+def write_cli_launcher(config: InstallConfig, paths: InstallPaths, install_cfg_path: Path) -> Path:
+    paths.runtime_bin_dir.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        content = (
+            "@echo off\r\n"
+            f"\"{paths.runtime_python_path}\" -m agentx --install-config \"{install_cfg_path}\" %*\r\n"
+        )
+    else:
+        content = (
+            "#!/usr/bin/env sh\n"
+            f"exec \"{paths.runtime_python_path}\" -m agentx --install-config \"{install_cfg_path}\" \"$@\"\n"
+        )
+    paths.agentx_launcher_path.write_text(content, encoding="utf-8")
+    if os.name != "nt":
+        paths.agentx_launcher_path.chmod(0o755)
+    return paths.agentx_launcher_path
+
+
+def _managed_runtime_required(config: InstallConfig) -> bool:
+    return config.profile in {InstallProfile.STANDARD, InstallProfile.SERVER, InstallProfile.DEVELOPER}
+
+
+def _runtime_python_path(venv_dir: Path) -> Path:
+    windows = venv_dir / "Scripts" / "python.exe"
+    if windows.exists():
+        return windows
+    return venv_dir / "bin" / "python"
+
+
+def _effective_runtime_python(paths: InstallPaths) -> Path:
+    if paths.runtime_python_path.exists():
+        return paths.runtime_python_path
+    return Path(sys.executable).resolve()
+
+
+def _service_python_path(config: InstallConfig, paths: InstallPaths) -> Path:
+    if _managed_runtime_required(config):
+        return paths.runtime_python_path
+    return _effective_runtime_python(paths)
+
+
+def _managed_runtime_report(config: InstallConfig, paths: InstallPaths) -> dict[str, Any]:
+    required = _managed_runtime_required(config)
+    venv_exists = paths.runtime_venv_dir.exists()
+    python_exists = paths.runtime_python_path.exists()
+    deps = dependency_report(config, python_executable=paths.runtime_python_path)
+    import_ok = python_exists and all(bool(item["ok"]) for item in deps)
+    ready = (not required) or (venv_exists and python_exists and import_ok)
+    return {
+        "required": required,
+        "venv_path": str(paths.runtime_venv_dir),
+        "python_path": str(paths.runtime_python_path),
+        "venv_exists": venv_exists,
+        "python_exists": python_exists,
+        "import_ok": import_ok,
+        "ready": ready,
+        "dependencies": deps,
+    }
+
+
+def _assert_managed_runtime_ready(config: InstallConfig, paths: InstallPaths) -> dict[str, Any]:
+    report = _managed_runtime_report(config, paths)
+    if report["ready"]:
+        return report
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    if not report["required"]:
+        return report
+    if not report["venv_exists"]:
+        raise RuntimeError(f"Managed runtime was not created at {paths.runtime_venv_dir}. See {paths.install_log_path}")
+    if not report["python_exists"]:
+        raise RuntimeError(f"Managed runtime interpreter is missing at {paths.runtime_python_path}. See {paths.install_log_path}")
+    failed = [item for item in report["dependencies"] if not bool(item["ok"])]
+    if failed:
+        detail = "; ".join(f"{item['missing_module']} -> {item['package']}" for item in failed)
+        raise RuntimeError(f"Managed runtime is present but missing required imports: {detail}. See {paths.install_log_path}")
+    raise RuntimeError(f"Managed runtime is not ready. See {paths.install_log_path}")
+
+
+def _append_command_log(log_path: Path, *, label: str, args: list[str]) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now(dt.timezone.utc).isoformat()
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n[{stamp}] {label}: {' '.join(args)}\n")
+
+
+def _append_log_message(log_path: Path, message: str) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now(dt.timezone.utc).isoformat()
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n[{stamp}] {message}\n")
+
+
+def _run_logged(args: list[str], *, cwd: Path, log_path: Path, env: dict[str, str] | None = None) -> None:
+    _append_command_log(log_path, label="run", args=args)
+    with log_path.open("a", encoding="utf-8") as handle:
+        proc = subprocess.run(args, cwd=str(cwd), env=env, stdout=handle, stderr=handle, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(f"Command failed with exit code {proc.returncode}: {' '.join(args)}")
+
+
+def _runtime_package_ready(python_path: Path) -> bool:
+    if not python_path.exists():
+        return False
+    proc = subprocess.run(
+        [str(python_path), "-c", "import agentx; print('ok')"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    return proc.returncode == 0
+
+
+def _runtime_environment_needs_install(config: InstallConfig, paths: InstallPaths) -> bool:
+    if not paths.runtime_python_path.exists():
+        return True
+    if not _runtime_package_ready(paths.runtime_python_path):
+        return True
+    deps = dependency_report(config, python_executable=paths.runtime_python_path)
+    return any(not bool(item["ok"]) for item in deps)
+
+
+def _ensure_runtime_python_environment(config: InstallConfig, paths: InstallPaths) -> None:
+    bundle_pyproject = _bundle_pyproject_path(config)
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    if not bundle_pyproject.exists():
+        if _managed_runtime_required(config):
+            raise RuntimeError(
+                f"AgentX packaging metadata is missing from the app bundle: {bundle_pyproject}. "
+                f"See {paths.install_log_path}"
+            )
+        return
+    if not _runtime_environment_needs_install(config, paths):
+        return
+    python_path = paths.runtime_python_path
+    if _managed_runtime_required(config):
+        _append_log_message(paths.install_log_path, f"Provisioning managed runtime at {paths.runtime_venv_dir}")
+    if not paths.runtime_python_path.exists():
+        try:
+            paths.runtime_venv_dir.parent.mkdir(parents=True, exist_ok=True)
+            venv.EnvBuilder(with_pip=True, clear=False, symlinks=(os.name != "nt")).create(str(paths.runtime_venv_dir))
+        except Exception as exc:
+            _append_log_message(paths.install_log_path, f"venv creation failed: {exc}")
+            raise RuntimeError(f"Managed runtime creation failed at {paths.runtime_venv_dir}. See {paths.install_log_path}") from exc
+        python_path = _runtime_python_path(paths.runtime_venv_dir)
+    if not python_path.exists():
+        raise RuntimeError(f"Managed runtime was not created at {paths.runtime_venv_dir}. See {paths.install_log_path}")
+    target = install_target_for_config(config)
+    _run_logged([str(python_path), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], cwd=config.app_root, log_path=paths.install_log_path)
+    _run_logged([str(python_path), "-m", "pip", "install", "--upgrade", target], cwd=config.app_root, log_path=paths.install_log_path)
+    deps = dependency_report(config, python_executable=python_path)
+    failed = [item for item in deps if not bool(item["ok"])]
+    if failed:
+        detail = "; ".join(f"{item['module']} -> {item['package']}" for item in failed)
+        raise RuntimeError(f"Runtime dependency provisioning failed for profile {config.profile.value}: {detail}. See {paths.install_log_path}")
+
+
+def _service_dir() -> Path:
+    xdg = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
+    if xdg:
+        return Path(xdg).expanduser() / "systemd" / "user"
+    return Path.home() / ".config" / "systemd" / "user"
+
+
+def _systemd_unit_names(config: InstallConfig) -> list[str]:
+    names: list[str] = []
+    if config.api.enabled:
+        names.append("agentx-api.service")
+    if config.web.enabled:
+        names.append("agentx-web.service")
+    return names
+
+
+def service_log_paths(paths: InstallPaths) -> dict[str, Path]:
+    return {"api": paths.api_log_path, "web": paths.web_log_path}
+
+
+def systemd_user_available_or_error() -> None:
+    platform_info = detect_platform()
+    if platform_info.systemd_user_available:
+        return
+    if getattr(platform_info, "systemd_present_but_unusable", False):
+        raise RuntimeError(
+            "systemctl --user is present but not usable in this environment. "
+            "This usually means the user systemd session is not active."
+        )
+    raise RuntimeError("systemd user services are not available in this environment.")
+
+
+def systemctl_user(*args: str, timeout_s: float = 20.0) -> subprocess.CompletedProcess[str]:
+    systemd_user_available_or_error()
+    proc = subprocess.run(
+        ["systemctl", "--user", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout_s,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(f"systemctl --user {' '.join(args)} failed: {detail or f'exit code {proc.returncode}'}")
+    return proc
+
+
+def _systemd_unit_content(name: str, config: InstallConfig, paths: InstallPaths, install_cfg_path: Path) -> str:
+    description = "AgentX API" if name == "agentx-api.service" else "AgentX Web UI"
+    after = "network.target" if name == "agentx-api.service" else "agentx-api.service"
+    internal_cmd = "serve-api" if name == "agentx-api.service" else "serve-web"
+    return f"""[Unit]
+Description={description}
+After={after}
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart={_service_python_path(config, paths)} -m agentx --install-config {install_cfg_path} internal {internal_cmd}
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=30
+TimeoutStopSec=20
+WorkingDirectory={paths.work_dir}
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def install_systemd_units(config: InstallConfig, paths: InstallPaths) -> list[Path]:
+    systemd_user_available_or_error()
+    install_cfg_path = default_install_config_path()
+    target_dir = _service_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for name in _systemd_unit_names(config):
+        path = target_dir / name
+        path.write_text(_systemd_unit_content(name, config, paths, install_cfg_path), encoding="utf-8")
+        written.append(path)
+    systemctl_user("daemon-reload")
+    return written
+
+
+def install_service_files(config: InstallConfig, paths: InstallPaths) -> list[Path]:
+    if config.service_mode == ServiceMode.NONE:
+        return []
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        return install_systemd_units(config, paths)
+    raise RuntimeError(f"Unsupported service mode: {config.service_mode.value}")
+
+
+def remove_systemd_units(paths: InstallPaths) -> list[Path]:
+    systemd_user_available_or_error()
+    removed: list[Path] = []
+    for name in ("agentx-api.service", "agentx-web.service"):
+        path = _service_dir() / name
+        if path.exists():
+            path.unlink()
+            removed.append(path)
+    systemctl_user("daemon-reload")
+    return removed
+
+
+def enable_systemd_units(config: InstallConfig) -> None:
+    names = _systemd_unit_names(config)
+    if not names:
+        return {}
+    systemctl_user("enable", *names)
+    states: dict[str, str] = {}
+    for name in names:
+        proc = _systemctl_user_query("is-enabled", name)
+        enabled = (proc.stdout or "").strip()
+        if proc.returncode != 0 or enabled != "enabled":
+            raise RuntimeError(f"Failed to verify {name} as enabled. Detected state: {enabled or 'unknown'}")
+        states[name] = enabled
+    return states
+
+
+def disable_systemd_units(config: InstallConfig) -> None:
+    names = _systemd_unit_names(config)
+    if not names:
+        return {}
+    systemctl_user("disable", *names)
+    states: dict[str, str] = {}
+    for name in names:
+        proc = _systemctl_user_query("is-enabled", name)
+        enabled = (proc.stdout or "").strip()
+        if enabled == "enabled":
+            raise RuntimeError(f"Failed to verify {name} as disabled. Detected state: enabled")
+        states[name] = enabled or "unknown"
+    return states
+
+
+def _systemctl_user_query(*args: str, timeout_s: float = 10.0) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(
+        ["systemctl", "--user", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout_s,
+    )
+    return proc
+
+
+def systemd_status(config: InstallConfig) -> dict[str, dict[str, Any]]:
+    systemd_user_available_or_error()
+    status: dict[str, dict[str, Any]] = {}
+    for name in _systemd_unit_names(config):
+        active_proc = _systemctl_user_query("is-active", name)
+        enabled_proc = _systemctl_user_query("is-enabled", name)
+        status[name] = {
+            "active": (active_proc.stdout or "").strip() or "unknown",
+            "enabled": (enabled_proc.stdout or "").strip() or "unknown",
+            "active_ok": active_proc.returncode == 0,
+            "enabled_ok": enabled_proc.returncode == 0,
+            "unit_path": str(_service_dir() / name),
+        }
+    return status
+
+
+def autostart_state_from_services(services: dict[str, Any]) -> str:
+    enabled_values: list[str] = []
+    for item in services.values():
+        if not isinstance(item, dict):
+            continue
+        raw = item.get("systemd_enabled", item.get("enabled", "unknown"))
+        if isinstance(raw, bool):
+            enabled_values.append("enabled" if raw else "disabled")
+        else:
+            enabled_values.append(str(raw or "unknown"))
+    if not enabled_values:
+        return "unknown"
+    normalized = []
+    for value in enabled_values:
+        lower = value.lower()
+        if lower == "enabled":
+            normalized.append("enabled")
+        elif lower in {"disabled", "static", "indirect", "masked", "generated", "transient"}:
+            normalized.append("disabled")
+        else:
+            normalized.append("unknown")
+    unique = set(normalized)
+    if unique == {"enabled"}:
+        return "enabled"
+    if unique == {"disabled"}:
+        return "disabled"
+    if "unknown" in unique and len(unique) == 1:
+        return "unknown"
+    return "mixed"
+
+
+def _process_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _read_pid(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
+def _write_pid(path: Path, pid: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(pid), encoding="utf-8")
+
+
+def _cleanup_stale_pid(path: Path) -> int | None:
+    pid = _read_pid(path)
+    if pid is None:
+        return None
+    if _process_running(pid):
+        return pid
+    path.unlink(missing_ok=True)
+    return None
+
+
+def _append_log_header(log_path: Path, *, service: str, args: list[str]) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now(dt.timezone.utc).isoformat()
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"\n[{stamp}] starting {service}: {' '.join(args)}\n")
+
+
+def _tail_log(log_path: Path, *, lines: int = 12) -> str:
+    if not log_path.exists():
+        return ""
+    text = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    trimmed = [line for line in text if line.strip()][-lines:]
+    return "\n".join(trimmed)
+
+
+def _spawn_process(args: list[str], env: dict[str, str], pid_path: Path, cwd: Path, log_path: Path, service: str) -> int:
+    _append_log_header(log_path, service=service, args=args)
+    with log_path.open("a", encoding="utf-8") as handle:
+        proc = subprocess.Popen(args, cwd=str(cwd), env=env, stdout=handle, stderr=handle, start_new_session=True)
+    _write_pid(pid_path, proc.pid)
+    return proc.pid
+
+
+def _common_env(config: InstallConfig, paths: InstallPaths) -> dict[str, str]:
+    env = os.environ.copy()
+    local_profile = resolve_local_profile(config.runtime_root)
+    env["AGENTX_APP_ROOT"] = str(config.app_root)
+    env["AGENTX_RUNTIME_ROOT"] = str(config.runtime_root)
+    env["AGENTX_WORKING_DIR"] = str(config.working_dir)
+    env["AGENTX_CONFIG_PATH"] = str(paths.config_path)
+    env["AGENTX_API_HOST"] = config.api.host
+    env["AGENTX_API_PORT"] = str(config.api.port)
+    env["AGENTX_API_DATA_DIR"] = str(paths.api_data_dir)
+    env["AGENTX_AUTH_ENABLED"] = "true" if config.auth.enabled else "false"
+    env["AGENTX_OLLAMA_BASE_URL"] = str(config.ollama_base_url)
+    web_origin = browser_web_origin(config)
+    existing_origins = env.get("AGENTX_CORS_ALLOW_ORIGINS", "").strip()
+    env["AGENTX_CORS_ALLOW_ORIGINS"] = ";".join([item for item in (existing_origins, web_origin) if item])
+    env["AGENTX_WEB_ORIGIN"] = web_origin
+    env["AGENTX_PROFILE_ID"] = local_profile.profile_id
+    env["AGENTX_PROFILE_NAME"] = local_profile.display_name
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(config.app_root / "AgentX"), str(config.app_root / "apps" / "api"), env.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
+    return env
+
+
+def _port_open(host: str, port: int, timeout_s: float = 0.2) -> bool:
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout_s):
+            return True
+    except OSError:
+        return False
+
+
+def _http_health(url: str, timeout_s: float = 1.0) -> bool:
+    try:
+        with urlopen(url, timeout=timeout_s) as response:  # noqa: S310
+            return int(getattr(response, "status", 0)) in {200, 204}
+    except (OSError, URLError):
+        return False
+
+
+def _probe_host(host: str) -> str:
+    host = (host or "").strip()
+    if host in {"0.0.0.0", "::", ""}:
+        return "127.0.0.1"
+    return host
+
+
+def _service_specs(config: InstallConfig, paths: InstallPaths, install_cfg_path: Path) -> dict[str, dict[str, Any]]:
+    runtime_python = _service_python_path(config, paths)
+    return {
+        "api": {
+            "enabled": config.api.enabled,
+            "pid_path": paths.api_pid_path,
+            "log_path": paths.api_log_path,
+            "host": config.api.host,
+            "port": int(config.api.port),
+            "health_url": f"http://{_probe_host(config.api.host)}:{config.api.port}/v1/status",
+            "args": [str(runtime_python), "-m", "agentx", "--install-config", str(install_cfg_path), "internal", "serve-api"],
+        },
+        "web": {
+            "enabled": config.web.enabled,
+            "pid_path": paths.web_pid_path,
+            "log_path": paths.web_log_path,
+            "host": config.web.host,
+            "port": int(config.web.port),
+            "health_url": f"http://{_probe_host(config.web.host)}:{config.web.port}/",
+            "args": [str(runtime_python), "-m", "agentx", "--install-config", str(install_cfg_path), "internal", "serve-web"],
+        },
+    }
+
+
+def _systemd_service_result(config: InstallConfig, paths: InstallPaths) -> dict[str, Any]:
+    status = systemd_status(config)
+    out: dict[str, Any] = {"profile": config.profile.value, "services": {}}
+    specs = _service_specs(config, paths, default_install_config_path())
+    for name, spec in specs.items():
+        if not spec["enabled"]:
+            out["services"][name] = {"state": "disabled"}
+            continue
+        unit_name = f"agentx-{name}.service"
+        unit_state = status.get(unit_name, {})
+        active = str(unit_state.get("active", "unknown"))
+        enabled = str(unit_state.get("enabled", "unknown"))
+        out["services"][name] = {
+            "state": "started" if active == "active" else "failed",
+            "url": spec["health_url"],
+            "detail": f"systemd active={active}, enabled={enabled}",
+            "log_path": str(spec["log_path"]),
+            "service_log_path": str(spec["log_path"]),
+            "active": active,
+            "enabled": enabled,
+        }
+    return out
+
+
+def _wait_for_service(name: str, pid: int, host: str, port: int, health_url: str, log_path: Path, timeout_s: float = 15.0) -> tuple[bool, str]:
+    deadline = time.time() + timeout_s
+    last = "service did not report healthy before timeout"
+    connect_host = _probe_host(host)
+    while time.time() < deadline:
+        if not _process_running(pid):
+            tail = _tail_log(log_path)
+            if tail:
+                return False, f"{name} process exited before becoming healthy. Last log output:\n{tail}"
+            return False, f"{name} process exited before becoming healthy"
+        if _http_health(health_url):
+            return True, f"{name} healthy at {health_url}"
+        if _port_open(connect_host, port):
+            last = f"{name} accepted connections on {connect_host}:{port} but health check did not succeed yet"
+        time.sleep(0.25)
+    tail = _tail_log(log_path)
+    if tail:
+        return False, f"{last}\nLast log output:\n{tail}"
+    return False, last
+
+
+def start_installation(config: InstallConfig, *, install_config_path: Path | None = None) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    paths.logs_dir.mkdir(parents=True, exist_ok=True)
+    if not paths.config_path.exists():
+        error = f"Runtime config is missing at {paths.config_path}. Run `agentx setup` first."
+        if config.api.enabled:
+            _append_log_message(paths.api_log_path, error)
+        if config.web.enabled:
+            _append_log_message(paths.web_log_path, error)
+        return {
+            "profile": config.profile.value,
+            "services": {
+                "api": {"state": "missing_config", "error": error, "log_path": str(paths.install_log_path), "service_log_path": str(paths.api_log_path)} if config.api.enabled else {"state": "disabled"},
+                "web": {"state": "missing_config", "error": error, "log_path": str(paths.install_log_path), "service_log_path": str(paths.web_log_path)} if config.web.enabled else {"state": "disabled"},
+            },
+        }
+    runtime_report = _managed_runtime_report(config, paths)
+    if runtime_report["required"] and not runtime_report["ready"]:
+        error = f"Managed runtime is missing or incomplete at {paths.runtime_venv_dir}. See {paths.install_log_path}"
+        if config.api.enabled:
+            _append_log_message(paths.api_log_path, error)
+        if config.web.enabled:
+            _append_log_message(paths.web_log_path, error)
+        return {
+            "profile": config.profile.value,
+            "services": {
+                "api": {"state": "missing_runtime", "error": error, "log_path": str(paths.install_log_path), "service_log_path": str(paths.api_log_path)} if config.api.enabled else {"state": "disabled"},
+                "web": {"state": "missing_runtime", "error": error, "log_path": str(paths.install_log_path), "service_log_path": str(paths.web_log_path)} if config.web.enabled else {"state": "disabled"},
+            },
+        }
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        install_systemd_units(config, paths)
+        enable_systemd_units(config)
+        names = _systemd_unit_names(config)
+        if names:
+            systemctl_user("start", *names)
+        return _systemd_service_result(config, paths)
+    env = _common_env(config, paths)
+    install_cfg = (install_config_path or default_install_config_path()).expanduser().resolve()
+    out: dict[str, Any] = {"profile": config.profile.value, "services": {}}
+    runtime_python = paths.runtime_python_path if runtime_report["required"] else _effective_runtime_python(paths)
+    missing_deps = dependency_report(config, python_executable=runtime_python)
+    for name, spec in _service_specs(config, paths, install_cfg).items():
+        if not spec["enabled"]:
+            out["services"][name] = {"state": "disabled"}
+            continue
+        service_missing = [item for item in missing_deps if not bool(item["ok"]) and str(item["service"]) in {name, "developer"}]
+        if service_missing:
+            out["services"][name] = {
+                "state": "missing_dependencies",
+                "error": "; ".join(
+                    f"{item['missing_module']} -> install {item['package']}" for item in service_missing
+                ),
+                "log_path": str(spec["log_path"]),
+            }
+            continue
+        pid_path = spec["pid_path"]
+        existing_pid = _cleanup_stale_pid(pid_path)
+        if existing_pid is not None:
+            out["services"][name] = {
+                "state": "already_running",
+                "pid": existing_pid,
+                "url": spec["health_url"],
+                "log_path": str(spec["log_path"]),
+            }
+            continue
+        if _port_open(_probe_host(spec["host"]), spec["port"]):
+            out["services"][name] = {
+                "state": "blocked",
+                "error": f"Port {spec['host']}:{spec['port']} is already in use",
+                "url": spec["health_url"],
+                "log_path": str(spec["log_path"]),
+            }
+            continue
+        pid = _spawn_process(spec["args"], env, pid_path, config.app_root, spec["log_path"], name)
+        ok, detail = _wait_for_service(name, pid, spec["host"], spec["port"], spec["health_url"], spec["log_path"])
+        if ok:
+            out["services"][name] = {
+                "state": "started",
+                "pid": pid,
+                "url": spec["health_url"],
+                "detail": detail,
+                "log_path": str(spec["log_path"]),
+            }
+            continue
+        _stop_pid(pid_path)
+        out["services"][name] = {
+            "state": "failed",
+            "pid": pid,
+            "url": spec["health_url"],
+            "error": detail,
+            "log_path": str(spec["log_path"]),
+        }
+    return out
+
+
+def _stop_pid(pid_path: Path) -> dict[str, Any]:
+    pid = _read_pid(pid_path)
+    if pid is None:
+        return {"state": "not_running"}
+    if not _process_running(pid):
+        pid_path.unlink(missing_ok=True)
+        return {"state": "stale_pid_removed", "pid": pid}
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(50):
+        if not _process_running(pid):
+            pid_path.unlink(missing_ok=True)
+            return {"state": "stopped", "pid": pid}
+        time.sleep(0.1)
+    return {"state": "stop_timeout", "pid": pid}
+
+
+def stop_installation(config: InstallConfig) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        svc = systemd_status(config)
+        names = _systemd_unit_names(config)
+        active_names = [name for name in names if str((svc.get(name) or {}).get("active", "")).strip().lower() in {"active", "activating", "reloading"}]
+        if active_names:
+            systemctl_user("stop", *active_names)
+        out: dict[str, Any] = {}
+        for name in names:
+            key = name.removeprefix("agentx-").removesuffix(".service")
+            active = str((svc.get(name) or {}).get("active", "unknown")).strip().lower()
+            out[key] = {"state": "stopped" if name in active_names else "already_stopped"}
+        return out
+    return {
+        "api": _stop_pid(paths.api_pid_path),
+        "web": _stop_pid(paths.web_pid_path),
+    }
+
+
+def restart_installation(config: InstallConfig, *, install_config_path: Path | None = None) -> dict[str, Any]:
+    stopped = stop_installation(config)
+    failures = [
+        f"{name}: {item.get('state')}"
+        for name, item in stopped.items()
+        if isinstance(item, dict) and str(item.get("state", "")).strip().lower() in {"stop_timeout", "failed"}
+    ]
+    if failures:
+        return {"ok": False, "stop": stopped, "start": {}, "error": "; ".join(failures)}
+    started = start_installation(config, install_config_path=install_config_path)
+    return {"ok": True, "stop": stopped, "start": started}
+
+
+def _path_has_install_markers(path: Path, markers: tuple[str, ...]) -> bool:
+    resolved = _resolved_path(path)
+    return any((resolved / marker).exists() for marker in markers)
+
+
+def _looks_like_install_runtime_root(path: Path) -> bool:
+    return _path_has_install_markers(path, ("config", "data", "logs", "run", "state"))
+
+
+def _looks_like_app_bundle(path: Path) -> bool:
+    return not validate_app_bundle(_resolved_path(path))
+
+
+def _is_dangerous_remove_target(path: Path) -> bool:
+    resolved = _resolved_path(path)
+    home = Path.home().expanduser().resolve(strict=False)
+    if resolved == resolved.anchor or str(resolved) in {"/", "\\"}:
+        return True
+    if resolved == home:
+        return True
+    return False
+
+
+def _remove_tree_if_safe(path: Path, *, kind: str, allow: bool) -> dict[str, Any]:
+    resolved = _resolved_path(path)
+    if not allow:
+        return {"state": "kept", "path": str(resolved)}
+    if not resolved.exists():
+        return {"state": "already_absent", "path": str(resolved)}
+    if _is_dangerous_remove_target(resolved):
+        return {"state": "skipped", "path": str(resolved), "warning": f"Refused to remove unsafe {kind} target."}
+    shutil.rmtree(resolved)
+    return {"state": "removed", "path": str(resolved)}
+
+
+def _remove_file_if_matches(path: Path, *, expected_app_root: Path) -> dict[str, Any]:
+    resolved = _resolved_path(path)
+    if not resolved.exists():
+        return {"state": "already_absent", "path": str(resolved)}
+    try:
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return {"state": "skipped", "path": str(resolved), "warning": f"Could not inspect launcher: {exc}"}
+    marker = f'export AGENTX_BOOTSTRAP_APP_ROOT="{_resolved_path(expected_app_root)}"'
+    if marker not in text:
+        return {"state": "skipped", "path": str(resolved), "warning": "Launcher does not appear to belong to this install."}
+    resolved.unlink(missing_ok=True)
+    return {"state": "removed", "path": str(resolved)}
+
+
+def uninstall_installation(
+    config: InstallConfig,
+    *,
+    install_config_path: Path | None = None,
+    remove_app_root: bool = True,
+) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    install_cfg = _resolved_path(install_config_path or default_install_config_path())
+    result: dict[str, Any] = {
+        "stopped": {},
+        "launchers": {},
+        "systemd_units": {},
+        "runtime_root": {},
+        "app_root": {},
+        "install_config": {},
+        "bootstrap_record": {},
+        "warnings": [],
+    }
+
+    try:
+        result["stopped"] = stop_installation(config)
+    except Exception as exc:
+        result["warnings"].append(f"Stop step failed: {exc}")
+
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        try:
+            disable_systemd_units(config)
+        except Exception as exc:
+            result["warnings"].append(f"Disabling systemd-user units failed: {exc}")
+        try:
+            removed = remove_systemd_units(paths)
+            result["systemd_units"] = {
+                "state": "removed" if removed else "already_absent",
+                "paths": [str(path) for path in removed],
+            }
+        except Exception as exc:
+            manual_removed: list[str] = []
+            for name in ("agentx-api.service", "agentx-web.service"):
+                unit_path = _service_dir() / name
+                if unit_path.exists():
+                    unit_path.unlink(missing_ok=True)
+                    manual_removed.append(str(unit_path))
+            result["systemd_units"] = {
+                "state": "removed" if manual_removed else "skipped",
+                "paths": manual_removed,
+            }
+            result["warnings"].append(f"Systemd cleanup fell back to manual unit removal: {exc}")
+
+    result["launchers"]["agentx"] = _remove_file_if_matches(canonical_user_launcher_path(), expected_app_root=config.app_root)
+    result["launchers"]["nexai"] = _remove_file_if_matches(nexai_user_launcher_path(), expected_app_root=config.app_root)
+    result["launchers"]["sol"] = _remove_file_if_matches(compatibility_user_launcher_path(), expected_app_root=config.app_root)
+
+    runtime_allow = _looks_like_install_runtime_root(paths.runtime_root)
+    if not runtime_allow and paths.runtime_root.exists():
+        result["warnings"].append(f"Skipped runtime root removal because it did not match the expected AgentX runtime layout: {paths.runtime_root}")
+    result["runtime_root"] = _remove_tree_if_safe(paths.runtime_root, kind="runtime root", allow=runtime_allow)
+
+    app_allow = remove_app_root and _looks_like_app_bundle(config.app_root)
+    if remove_app_root and not app_allow and config.app_root.exists():
+        result["warnings"].append(f"Skipped app bundle removal because it does not look like a AgentX bundle: {config.app_root}")
+    result["app_root"] = _remove_tree_if_safe(config.app_root, kind="app bundle", allow=app_allow)
+
+    if install_cfg.exists():
+        install_cfg.unlink(missing_ok=True)
+        result["install_config"] = {"state": "removed", "path": str(install_cfg)}
+    else:
+        result["install_config"] = {"state": "already_absent", "path": str(install_cfg)}
+
+    try:
+        bootstrap_record = bootstrap_app_root_record_path()
+        recorded_app_root = read_bootstrap_app_root()
+    except Exception:
+        bootstrap_record = None
+        recorded_app_root = None
+    if bootstrap_record is None:
+        result["bootstrap_record"] = {"state": "unknown"}
+    elif recorded_app_root and _resolved_path(recorded_app_root) == _resolved_path(config.app_root) and bootstrap_record.exists():
+        bootstrap_record.unlink(missing_ok=True)
+        result["bootstrap_record"] = {"state": "removed", "path": str(bootstrap_record)}
+    else:
+        result["bootstrap_record"] = {"state": "kept", "path": str(bootstrap_record)}
+
+    return result
+
+
+def status_installation(config: InstallConfig) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    runtime_report = _managed_runtime_report(config, paths)
+    details: dict[str, Any] = {
+        "profile": config.profile.value,
+        "service_mode": config.service_mode.value,
+        "app_root": str(paths.app_root),
+        "config_path": str(paths.config_path),
+        "runtime_root": str(paths.runtime_root),
+        "working_dir": str(paths.work_dir),
+        "managed_runtime_path": str(paths.runtime_venv_dir),
+        "runtime_python": str(paths.runtime_python_path if runtime_report["required"] else _effective_runtime_python(paths)),
+        "managed_runtime": runtime_report,
+        "install_log_path": str(paths.install_log_path),
+        "web_url": f"http://{_probe_host(config.web.host)}:{config.web.port}/" if config.web.enabled else "",
+        "services": {},
+    }
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        svc = systemd_status(config)
+        for name, spec in _service_specs(config, paths, default_install_config_path()).items():
+            if not spec["enabled"]:
+                details["services"][name] = {
+                    "enabled": False,
+                    "state": "disabled",
+                    "log_path": str(spec["log_path"]),
+                    "log_source": f"journalctl --user -u agentx-{name}.service",
+                    "unit_file_path": str(_service_dir() / f"agentx-{name}.service"),
+                    "health_url": spec["health_url"],
+                    "web_url": spec["health_url"] if name == "web" else "",
+                }
+                continue
+            unit_name = f"agentx-{name}.service"
+            unit_state = svc.get(unit_name, {})
+            details["services"][name] = {
+                "enabled": spec["enabled"],
+                "pid": None,
+                "state": str(unit_state.get("active", "unknown")),
+                "host": spec["host"],
+                "port": spec["port"],
+                "url": spec["health_url"],
+                "log_path": str(spec["log_path"]),
+                "log_source": f"journalctl --user -u {unit_name}",
+                "port_open": _port_open(_probe_host(spec["host"]), spec["port"]),
+                "healthy": _http_health(spec["health_url"]),
+                "systemd_enabled": str(unit_state.get("enabled", "unknown")),
+                "unit_file_path": str(unit_state.get("unit_path", _service_dir() / unit_name)),
+                "health_url": spec["health_url"],
+                "web_url": spec["health_url"] if name == "web" else "",
+            }
+        return details
+    for name, spec in _service_specs(config, paths, default_install_config_path()).items():
+        pid = _cleanup_stale_pid(spec["pid_path"])
+        port_open = _port_open(_probe_host(spec["host"]), spec["port"])
+        healthy = _http_health(spec["health_url"]) if spec["enabled"] else False
+        state = "disabled"
+        if spec["enabled"]:
+            if pid and healthy:
+                state = "running"
+            elif pid:
+                state = "degraded"
+            elif port_open:
+                state = "port_in_use"
+            else:
+                state = "stopped"
+        details["services"][name] = {
+            "enabled": spec["enabled"],
+            "pid": pid,
+            "state": state,
+            "host": spec["host"],
+            "port": spec["port"],
+            "url": spec["health_url"],
+            "log_path": str(spec["log_path"]),
+            "log_source": str(spec["log_path"]),
+            "port_open": port_open,
+            "healthy": healthy,
+            "unit_file_path": "",
+            "health_url": spec["health_url"],
+            "web_url": spec["health_url"] if name == "web" else "",
+        }
+    return details
+
+
+def read_service_logs(config: InstallConfig, service: str, *, tail: int = 100) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    service = service.strip().lower()
+    if service not in {"api", "web"}:
+        raise RuntimeError(f"Unknown service log target: {service}")
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        systemd_user_available_or_error()
+        unit_name = f"agentx-{service}.service"
+        proc = subprocess.run(
+            ["journalctl", "--user", "-u", unit_name, "-n", str(int(tail)), "--no-pager"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(f"journalctl --user -u {unit_name} failed: {detail or f'exit code {proc.returncode}'}")
+        return {"source": "journalctl", "service": service, "unit": unit_name, "text": proc.stdout}
+    log_path = service_log_paths(paths)[service]
+    return {"source": "file", "service": service, "path": str(log_path), "text": _tail_log(log_path, lines=int(tail))}
+
+
+def _health_service_state(raw_state: str) -> str:
+    state = (raw_state or "").strip().lower()
+    if state in {"running", "started", "active", "ready", "already_running"}:
+        return "running"
+    if state in {"stopped", "inactive", "disabled", "not_running"}:
+        return "stopped"
+    if state in {"failed", "degraded", "port_in_use", "missing_runtime", "missing_config", "missing_dependencies", "blocked"}:
+        return "failed"
+    return "unknown"
+
+
+def collect_health_report(config: InstallConfig) -> dict[str, Any]:
+    try:
+        status = status_installation(config)
+        services = status.get("services", {}) if isinstance(status.get("services"), dict) else {}
+        service_mode = str(status.get("service_mode", config.service_mode.value))
+    except Exception as exc:
+        status = {"services": {}}
+        services = {}
+        service_mode = config.service_mode.value
+        status_error = f"status probe failed: {exc}"
+    else:
+        status_error = ""
+
+    api_state = _health_service_state(str((services.get("api") or {}).get("state", "unknown")))
+    web_state = _health_service_state(str((services.get("web") or {}).get("state", "unknown")))
+
+    api_url = f"http://127.0.0.1:{config.api.port}/v1/status"
+    web_url = f"http://127.0.0.1:{config.web.port}/"
+
+    api_healthy = _http_health(api_url, timeout_s=2.0)
+    api_message = "healthy (200 OK)" if api_healthy else "unhealthy"
+
+    web_reachable = _http_health(web_url, timeout_s=2.0) or _port_open("127.0.0.1", int(config.web.port), timeout_s=2.0)
+    web_message = "reachable" if web_reachable else "unreachable"
+
+    provider = config.model_provider.strip().lower()
+    selected_model = ""
+    if provider == "ollama":
+        selected_model = "llama3.2"
+        try:
+            text = config.config_path.read_text(encoding="utf-8", errors="replace")
+            match = re.search(r"(?ms)^\[llm\.ollama\]\s+.*?^model\s*=\s*\"([^\"]+)\"", text)
+            if match:
+                selected_model = match.group(1).strip() or selected_model
+        except Exception:
+            selected_model = "llama3.2"
+    model_status = {"provider": provider, "message": provider or "unknown", "connected": True}
+    if provider == "ollama":
+        probe = probe_ollama_provider(config.ollama_base_url, model=selected_model, timeout_s=2.0)
+        ollama_url = f"{probe.base_url.rstrip('/')}/api/tags"
+        connected = probe.status in {"reachable", "reachable_no_models"}
+        model_available = probe.model_available
+        if probe.category == "model_unavailable" and probe.model:
+            message = f"ollama (model missing: {probe.model})"
+        else:
+            message = f"ollama ({'connected' if connected else 'disconnected'})"
+        model_status = {
+            "provider": "ollama",
+            "url": ollama_url,
+            "connected": connected,
+            "model": probe.model or selected_model,
+            "model_available": model_available,
+            "message": message,
+            "category": probe.category,
+            "detail": probe.detail,
+        }
+    elif provider:
+        model_status = {"provider": provider, "connected": True, "message": provider}
+
+    service_summary = "unknown"
+    if status_error:
+        service_summary = f"unknown ({status_error})"
+    elif api_state == "running" and (not config.web.enabled or web_state == "running"):
+        service_summary = f"running ({service_mode})"
+    elif api_state == "running" or (config.web.enabled and web_state == "running"):
+        service_summary = f"partially running ({service_mode})"
+    else:
+        service_summary = f"stopped ({service_mode})"
+
+    overall = "OK"
+    if not api_healthy:
+        overall = "FAIL"
+    elif (
+        (config.web.enabled and not web_reachable)
+        or (provider == "ollama" and (not bool(model_status.get("connected")) or model_status.get("model_available") is False))
+        or service_summary.startswith("partially running")
+        or service_summary.startswith("unknown")
+    ):
+        overall = "DEGRADED"
+
+    report = {
+        "api": {
+            "state": api_state,
+            "healthy": api_healthy,
+            "url": api_url,
+            "message": api_message,
+        },
+        "web": {
+            "state": web_state,
+            "reachable": web_reachable,
+            "url": web_url,
+            "message": web_message,
+        },
+        "services": {
+            "mode": service_mode,
+            "summary": service_summary,
+            "error": status_error,
+        },
+        "model": model_status,
+        "overall": overall,
+    }
+    return report
+
+
+def _doctor_runtime_directories(paths: InstallPaths) -> tuple[Path, ...]:
+    return (
+        paths.runtime_root,
+        paths.config_dir,
+        paths.extensions_dir,
+        paths.runtime_plugins_dir,
+        paths.runtime_skills_dir,
+        paths.data_dir,
+        paths.memory_dir,
+        paths.logs_dir,
+        paths.audit_dir,
+        paths.cache_dir,
+        paths.temp_dir,
+        paths.run_dir,
+        paths.work_dir,
+        paths.plugins_state_dir,
+        paths.skills_state_dir,
+        paths.web_runtime_dir,
+        paths.api_data_dir,
+        paths.lifecycle_dir,
+        paths.runtime_bin_dir,
+    )
+
+
+def _append_unique_message(target: list[str], message: str) -> None:
+    if message and message not in target:
+        target.append(message)
+
+
+def _doctor_report_findings(report: dict[str, Any]) -> list[str]:
+    findings: list[str] = []
+    for item in report.get("checks", []):
+        if not bool(item.get("ok")):
+            _append_unique_message(findings, str(item.get("message", item.get("name", "Unknown check failed"))))
+    for problem in report.get("problems", []):
+        _append_unique_message(findings, str(problem))
+    return findings
+
+
+def _health_report_problems(report: dict[str, Any], config: InstallConfig) -> list[str]:
+    problems: list[str] = []
+    api = report.get("api", {}) if isinstance(report.get("api"), dict) else {}
+    web = report.get("web", {}) if isinstance(report.get("web"), dict) else {}
+    services = report.get("services", {}) if isinstance(report.get("services"), dict) else {}
+    model = report.get("model", {}) if isinstance(report.get("model"), dict) else {}
+    if not bool(api.get("healthy")):
+        _append_unique_message(problems, "API health check failed.")
+    if config.web.enabled and not bool(web.get("reachable")):
+        _append_unique_message(problems, "Web UI is unreachable.")
+    if config.model_provider.strip().lower() == "ollama":
+        if model.get("model_available") is False:
+            _append_unique_message(problems, f"Ollama model is unavailable: {model.get('model') or 'unknown model'}.")
+        elif not bool(model.get("connected", True)):
+            _append_unique_message(problems, "Ollama endpoint is unreachable.")
+    summary = str(services.get("summary", ""))
+    if summary.startswith("partially running") or summary.startswith("unknown"):
+        _append_unique_message(problems, f"Service state is degraded: {summary}")
+    return problems
+
+
+def apply_safe_doctor_fixes(config: InstallConfig, *, install_config_path: Path | None = None) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    install_cfg_path = (install_config_path or default_install_config_path()).expanduser().resolve(strict=False)
+    initial_doctor = run_doctor(config)
+    initial_health = collect_health_report(config)
+
+    findings = _doctor_report_findings(initial_doctor)
+    for problem in _health_report_problems(initial_health, config):
+        _append_unique_message(findings, problem)
+
+    fixes_applied: list[str] = []
+    fix_failures: list[str] = []
+
+    missing_runtime_dirs = [path for path in _doctor_runtime_directories(paths) if not path.exists()]
+    if missing_runtime_dirs:
+        try:
+            for directory in missing_runtime_dirs:
+                directory.mkdir(parents=True, exist_ok=True)
+            fixes_applied.append("Created missing runtime directories.")
+        except Exception as exc:
+            fix_failures.append(f"Failed to create missing runtime directories: {exc}")
+
+    runtime_report = _managed_runtime_report(config, paths)
+    config_missing = not paths.config_path.exists()
+    web_config_missing = not paths.web_config_path.exists()
+    runtime_venv_missing = bool(runtime_report["required"] and not runtime_report["venv_exists"])
+    runtime_python_missing = bool(runtime_report["required"] and not runtime_report["python_exists"])
+    missing_dependencies = [item for item in runtime_report["dependencies"] if not bool(item["ok"])]
+    needs_reprovision = any(
+        (
+            config_missing,
+            web_config_missing,
+            runtime_venv_missing,
+            runtime_python_missing,
+            bool(missing_dependencies),
+        )
+    )
+    if needs_reprovision:
+        try:
+            ensure_installation_ready(config)
+            if config_missing:
+                fixes_applied.append("Regenerated runtime config.")
+            if web_config_missing:
+                fixes_applied.append("Regenerated web config.")
+            if runtime_venv_missing:
+                fixes_applied.append("Recreated managed runtime virtual environment.")
+            if runtime_python_missing:
+                fixes_applied.append("Repaired managed runtime interpreter.")
+            if missing_dependencies:
+                fixes_applied.append("Reinstalled missing managed runtime dependencies.")
+        except Exception as exc:
+            fix_failures.append(f"Managed runtime repair failed: {exc}")
+
+    if config.service_mode == ServiceMode.SYSTEMD_USER:
+        platform_info = detect_platform()
+        if platform_info.systemd_user_available:
+            missing_unit_files = [(_service_dir() / name) for name in _systemd_unit_names(config) if not (_service_dir() / name).exists()]
+            if missing_unit_files:
+                try:
+                    install_systemd_units(config, paths)
+                    fixes_applied.append("Reinstalled systemd user units.")
+                    fixes_applied.append("Reloaded systemd user daemon.")
+                except Exception as exc:
+                    fix_failures.append(f"Failed to reinstall systemd user units: {exc}")
+            unit_names = _systemd_unit_names(config)
+            if unit_names:
+                enabled_drift = False
+                for name in unit_names:
+                    proc = _systemctl_user_query("is-enabled", name)
+                    if (proc.stdout or "").strip() != "enabled":
+                        enabled_drift = True
+                        break
+                if enabled_drift:
+                    try:
+                        enable_systemd_units(config)
+                        fixes_applied.append("Enabled systemd user units.")
+                    except Exception as exc:
+                        fix_failures.append(f"Failed to enable systemd user units: {exc}")
+
+    launcher_path = canonical_user_launcher_path()
+    if not launcher_path.exists():
+        try:
+            write_bootstrap_launcher(
+                launcher_path=launcher_path,
+                bootstrap_python=bootstrap_python_path(),
+                app_root=config.app_root,
+            )
+            fixes_applied.append("Rewrote AgentX launcher.")
+        except Exception as exc:
+            fix_failures.append(f"Failed to rewrite AgentX launcher: {exc}")
+
+    final_doctor = run_doctor(config)
+    final_health = collect_health_report(config)
+    remaining_problems = list(final_doctor.get("problems", []))
+    for problem in _health_report_problems(final_health, config):
+        _append_unique_message(remaining_problems, problem)
+
+    final_status = "OK"
+    if fix_failures or not bool(final_doctor.get("ok")) or str(final_health.get("overall", "OK")) == "FAIL":
+        final_status = "FAIL"
+    elif str(final_health.get("overall", "OK")) == "DEGRADED":
+        final_status = "DEGRADED"
+
+    return {
+        "findings": findings,
+        "fixes_applied": fixes_applied,
+        "fix_failures": fix_failures,
+        "remaining_problems": remaining_problems,
+        "final_status": final_status,
+        "initial_doctor_result": initial_doctor,
+        "initial_health_result": initial_health,
+        "final_doctor_result": final_doctor,
+        "final_health_result": final_health,
+    }
+
+
+def inspect_runtime(config: InstallConfig) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    runtime_report = _managed_runtime_report(config, paths)
+    on_path = shutil.which("agentx")
+    user_launcher = canonical_user_launcher_path()
+    agentx_module = importlib.import_module("agentx")
+    cli_module = importlib.import_module("agentx.cli")
+    imports = {
+        str(item["module"]): {
+            "ok": bool(item["ok"]),
+            "package": str(item["package"]),
+            "error": str(item.get("error", "")) if not bool(item["ok"]) else "",
+        }
+        for item in runtime_report["dependencies"]
+    }
+    return {
+        "profile": config.profile.value,
+        "managed_runtime_required": runtime_report["required"],
+        "managed_runtime_path": str(paths.runtime_venv_dir),
+        "managed_runtime_exists": runtime_report["venv_exists"],
+        "managed_python_path": str(paths.runtime_python_path),
+        "managed_python_exists": runtime_report["python_exists"],
+        "launcher_path": str(user_launcher),
+        "launcher_exists": user_launcher.exists(),
+        "runtime_launcher_path": str(paths.agentx_launcher_path),
+        "runtime_launcher_exists": paths.agentx_launcher_path.exists(),
+        "agentx_on_path": on_path,
+        "python_executable": sys.executable,
+        "agentx_module_path": str(Path(getattr(agentx_module, "__file__", "")).resolve(strict=False)),
+        "agentx_cli_path": str(Path(getattr(cli_module, "__file__", "")).resolve(strict=False)),
+        "imports": imports,
+        "install_log_path": str(paths.install_log_path),
+        "ready": runtime_report["ready"],
+    }
+
+
+def _provider_status(config: InstallConfig) -> dict[str, Any]:
+    provider = config.model_provider.strip().lower()
+    status = {"provider": provider, "configured": True, "warning": None}
+    if provider == "openai" and not (os.environ.get("AGENTX_OPENAI_API_KEY") or os.environ.get("SOL_OPENAI_API_KEY") or os.environ.get("NEXAI_OPENAI_API_KEY")):
+        status["configured"] = False
+        status["warning"] = "AGENTX_OPENAI_API_KEY is not set"
+    if provider == "ollama":
+        status["base_url"] = config.ollama_base_url
+    if provider not in {"openai", "ollama", "stub"}:
+        status["configured"] = False
+        status["warning"] = f"Unknown provider: {provider}"
+    return status
+
+
+def _runtime_config_windows_path_findings(paths: InstallPaths, *, is_linux_like: bool) -> list[dict[str, str]]:
+    if not is_linux_like or not paths.config_path.exists():
+        return []
+    text = paths.config_path.read_text(encoding="utf-8", errors="replace")
+    findings: list[dict[str, str]] = []
+    for idx, line in enumerate(text.splitlines(), start=1):
+        match = re.search(_WINDOWS_DRIVE_PATH_RE, line)
+        if not match:
+            continue
+        findings.append(
+            {
+                "line": str(idx),
+                "value": line.strip(),
+                "message": "Windows drive path embedded in runtime config on Linux/WSL",
+            }
+        )
+    return findings
+
+
+def run_doctor(config: InstallConfig) -> dict[str, Any]:
+    paths = compute_install_paths(config)
+    platform_info = detect_platform()
+    local_profile = resolve_local_profile(config.runtime_root)
+    frontend_ok = (paths.app_root / "AgentXWeb" / "dist" / "index.html").exists()
+    provider = _provider_status(config)
+    runtime_report = _managed_runtime_report(config, paths)
+    windows_path_findings = _runtime_config_windows_path_findings(paths, is_linux_like=(platform_info.is_linux or platform_info.is_wsl))
+    on_path = shutil.which("agentx")
+    user_launcher = canonical_user_launcher_path()
+    agentx_module = importlib.import_module("agentx")
+    cli_module = importlib.import_module("agentx.cli")
+    deps = list(runtime_report["dependencies"])
+    checks = [
+        {"name": "app_root", "ok": paths.app_root.exists(), "path": str(paths.app_root), "message": "App bundle root"},
+        {"name": "runtime_root", "ok": paths.runtime_root.exists(), "path": str(paths.runtime_root), "message": "Mutable runtime root"},
+        {"name": "working_dir", "ok": paths.work_dir.exists(), "path": str(paths.work_dir), "message": "Default working directory"},
+        {"name": "config", "ok": paths.config_path.exists(), "path": str(paths.config_path), "message": "Generated runtime config"},
+        {"name": "runtime_venv", "ok": runtime_report["venv_exists"], "path": str(paths.runtime_venv_dir), "message": "Managed runtime virtual environment"},
+        {"name": "runtime_python", "ok": runtime_report["python_exists"], "path": str(paths.runtime_python_path), "message": "Managed runtime interpreter"},
+        {"name": "runtime_config_portable_paths", "ok": not windows_path_findings, "path": str(paths.config_path), "message": "Runtime config does not embed Windows drive paths on Linux/WSL"},
+        {"name": "api_package", "ok": (paths.app_root / "apps" / "api" / "agentx_api").exists(), "path": str(paths.app_root / "apps" / "api" / "agentx_api"), "message": "FastAPI package"},
+        {"name": "web_dist", "ok": frontend_ok, "path": str(paths.app_root / "AgentXWeb" / "dist" / "index.html"), "message": "Built web assets"},
+        {"name": "builtin_plugins_dir", "ok": paths.builtin_plugins_dir.exists(), "path": str(paths.builtin_plugins_dir), "message": "Built-in plugin directory"},
+        {"name": "runtime_plugins_dir", "ok": paths.runtime_plugins_dir.exists(), "path": str(paths.runtime_plugins_dir), "message": "Runtime plugin directory"},
+        {"name": "builtin_skills_dir", "ok": paths.builtin_skills_dir.exists(), "path": str(paths.builtin_skills_dir), "message": "Built-in skill directory"},
+        {"name": "runtime_skills_dir", "ok": paths.runtime_skills_dir.exists(), "path": str(paths.runtime_skills_dir), "message": "Runtime skill directory"},
+    ]
+    for item in deps:
+        checks.append(
+            {
+                "name": f"dependency:{item['module']}",
+                "ok": bool(item["ok"]),
+                "path": str(item["package"]),
+                "message": f"Required for {item['service']}",
+            }
+        )
+    problems: list[str] = []
+    if config.web.enabled and not frontend_ok:
+        problems.append("Web UI is enabled but AgentXWeb/dist is missing. Build or ship frontend assets before using the standard profile.")
+    if not provider["configured"]:
+        problems.append(f"Model provider is not ready: {provider['warning']}")
+    if config.service_mode == ServiceMode.SYSTEMD_USER and not platform_info.systemd_user_available:
+        if getattr(platform_info, "systemd_present_but_unusable", False):
+            problems.append("systemctl --user is present but unusable in this environment. AgentX cannot use systemd-user services here.")
+        else:
+            problems.append("systemd user services are not available in this environment.")
+    if runtime_report["required"] and not runtime_report["venv_exists"]:
+        problems.append(f"Managed runtime virtual environment is missing: {paths.runtime_venv_dir}")
+    if runtime_report["required"] and not runtime_report["python_exists"]:
+        problems.append(f"Managed runtime interpreter is missing: {paths.runtime_python_path}")
+    for finding in windows_path_findings:
+        problems.append(
+            f"Runtime config embeds a Windows drive path on Linux/WSL at line {finding['line']}: {finding['value']}"
+        )
+    if on_path and Path(on_path).resolve() != user_launcher.resolve(strict=False):
+        problems.append(f"`agentx` on PATH points to a different command: {on_path}. Use {user_launcher} for this install.")
+    legacy_sol = shutil.which("sol")
+    if legacy_sol and Path(legacy_sol).resolve(strict=False) != compatibility_user_launcher_path().resolve(strict=False):
+        problems.append(f"`sol` may resolve to a system game or another command: {legacy_sol}. Use `agentx` as the supported AgentX command.")
+    for message in missing_dependency_messages(config, python_executable=paths.runtime_python_path):
+        problems.append(message)
+    overall = all(item["ok"] for item in checks) and not problems
+    return {
+        "ok": overall,
+        "paths": {
+            "app_root": str(paths.app_root),
+            "runtime_root": str(paths.runtime_root),
+            "working_dir": str(paths.work_dir),
+            "config_path": str(paths.config_path),
+            "profile_path": str(paths.profile_path),
+            "managed_runtime_path": str(paths.runtime_venv_dir),
+            "runtime_python": str(paths.runtime_python_path if runtime_report["required"] else _effective_runtime_python(paths)),
+            "runtime_venv": str(paths.runtime_venv_dir),
+            "install_log_path": str(paths.install_log_path),
+        },
+        "managed_runtime_path": str(paths.runtime_venv_dir),
+        "managed_runtime_exists": runtime_report["venv_exists"],
+        "managed_python_path": str(paths.runtime_python_path),
+        "managed_python_exists": runtime_report["python_exists"],
+        "launcher_path": str(user_launcher),
+        "launcher_exists": user_launcher.exists(),
+        "runtime_launcher_path": str(paths.agentx_launcher_path),
+        "runtime_launcher_exists": paths.agentx_launcher_path.exists(),
+        "agentx_on_path": on_path,
+        "python_executable": sys.executable,
+        "agentx_module_path": str(Path(getattr(agentx_module, "__file__", "")).resolve(strict=False)),
+        "agentx_cli_path": str(Path(getattr(cli_module, "__file__", "")).resolve(strict=False)),
+        "local_profile": local_profile.to_dict(),
+        "api": {
+            "enabled": config.api.enabled,
+            "bind": config.api.host,
+            "port": config.api.port,
+        },
+        "web": {
+            "enabled": config.web.enabled,
+            "bind": config.web.host,
+            "port": config.web.port,
+            "assets_present": frontend_ok,
+        },
+        "provider": provider,
+        "dependencies": deps,
+        "imports": {
+            str(item["module"]): {
+                "ok": bool(item["ok"]),
+                "package": str(item["package"]),
+                "error": str(item.get("error", "")) if not bool(item["ok"]) else "",
+            }
+            for item in deps
+        },
+        "managed_runtime": runtime_report,
+        "extensions": {
+            "builtin_plugins_dir": str(paths.builtin_plugins_dir),
+            "runtime_plugins_dir": str(paths.runtime_plugins_dir),
+            "builtin_skills_dir": str(paths.builtin_skills_dir),
+            "runtime_skills_dir": str(paths.runtime_skills_dir),
+        },
+        "runtime_config_portability": {
+            "linux_wsl_check_applied": bool(platform_info.is_linux or platform_info.is_wsl),
+            "windows_drive_path_findings": windows_path_findings,
+        },
+        "environment": {
+            "system": platform_info.system,
+            "is_linux": platform_info.is_linux,
+            "is_wsl": platform_info.is_wsl,
+            "wsl_version": platform_info.wsl_version,
+            "systemd_user_available": platform_info.systemd_user_available,
+            "systemd_present_but_unusable": getattr(platform_info, "systemd_present_but_unusable", False),
+            "no_systemd": getattr(platform_info, "no_systemd", False),
+            "notes": list(platform_info.notes),
+        },
+        "checks": checks,
+        "problems": problems,
+    }
+
+
+def show_paths(config: InstallConfig) -> dict[str, str]:
+    paths = compute_install_paths(config)
+    return {key: str(value) for key, value in paths.__dict__.items()}
+
+
+def _serve_web_handler_factory(root: Path, config_js_path: Path):
+    class AgentXWebHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, directory=str(root), **kwargs)
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path in ("/agentxweb.config.js", "./agentxweb.config.js"):
+                payload = config_js_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
+            return super().do_GET()
+
+    return AgentXWebHandler
+
+
+def serve_web_forever(config: InstallConfig) -> int:
+    paths = ensure_installation_ready(config)
+    root = config.app_root / "AgentXWeb" / "dist"
+    if not root.exists():
+        raise FileNotFoundError(f"Built AgentXWeb assets not found: {root}")
+    server = ThreadingHTTPServer((config.web.host, int(config.web.port)), _serve_web_handler_factory(root, paths.web_config_path))
+    server.serve_forever()
+    return 0
+
+
+def serve_api_forever(config: InstallConfig) -> int:
+    paths = ensure_installation_ready(config)
+    api_root = config.app_root / "apps" / "api"
+    agentx_root = config.app_root / "AgentX"
+    for item in (str(api_root), str(agentx_root)):
+        if item not in sys.path:
+            sys.path.insert(0, item)
+    env = _common_env(config, paths)
+    os.environ.update(env)
+    from agentx_api.app import main as api_main
+
+    return int(api_main(["--host", config.api.host, "--port", str(config.api.port)]))

@@ -9,7 +9,7 @@ The product-style installer currently targets Linux and WSL, with Ubuntu 24.04 a
 Use the root installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/VielNexus/NexAI/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unbridledpc/AgentX/main/install.sh | bash
 ```
 
 What `install.sh` does:

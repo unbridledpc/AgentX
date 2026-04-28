@@ -21,3 +21,11 @@
 - URL ingestion uses AgentX web policy. Set `AGENTX_WEB_ENABLED=true` and allow the target host when ingesting web pages.
 - Folder ingestion remains restricted by `AGENTX_RAG_ALLOWED_ROOTS`.
 - This is RAG ingestion, not model retraining. It gives local models retrieved context from indexed sources.
+
+### Added
+- AgentX Nova UI refresh with softer panels, modern chat styling, improved composer polish, and a less Codex-like visual treatment.
+- GitHub update ticker in the web UI that checks the configured GitHub repository and highlights when a newer commit is available.
+- Runtime update feed config via `window.__AGENTXWEB_CONFIG__.updateFeed` and Vite env vars.
+
+### Changed
+- Web UI now supports a modern update/status strip below the top bar for release awareness.

@@ -41,7 +41,7 @@ This GitBook documents the repository as it exists in this workspace:
 On a fresh Ubuntu 24.04 or compatible WSL system:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/VielNexus/NexAI/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unbridledpc/AgentX/main/install.sh | bash
 agentx start
 agentx status
 ```

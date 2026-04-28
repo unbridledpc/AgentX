@@ -2370,3 +2370,271 @@ input[type="checkbox"] {
   margin: 0.35rem 0 0 1.1rem;
   padding: 0;
 }
+
+/* AgentX Nova UI refresh -------------------------------------------------- */
+:root {
+  --nova-bg: #060914;
+  --nova-panel: rgba(10, 16, 30, 0.72);
+  --nova-panel-strong: rgba(12, 20, 36, 0.88);
+  --nova-border: rgba(148, 163, 184, 0.14);
+  --nova-border-strong: rgba(125, 211, 252, 0.26);
+  --nova-text: #e5edf8;
+  --nova-muted: rgba(203, 213, 225, 0.62);
+  --nova-cyan: #22d3ee;
+  --nova-blue: #60a5fa;
+  --nova-violet: #a78bfa;
+}
+
+body {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(34, 211, 238, 0.16), transparent 30rem),
+    radial-gradient(circle at 80% 0%, rgba(96, 165, 250, 0.14), transparent 32rem),
+    radial-gradient(circle at 78% 92%, rgba(167, 139, 250, 0.1), transparent 28rem),
+    linear-gradient(135deg, #030712 0%, #07111f 42%, #020617 100%);
+}
+
+.agentx-shell {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.018), transparent 18%),
+    radial-gradient(circle at 50% 0%, rgba(34, 211, 238, 0.05), transparent 34rem);
+}
+
+.agentx-shell::before {
+  opacity: 0.52;
+  background-size: 48px 48px;
+  mask-image: linear-gradient(180deg, rgba(255, 255, 255, 0.38), transparent 78%);
+}
+
+.agentx-main-panel,
+.agentx-sidebar-panel,
+.agentx-composer,
+.agentx-feed,
+.agentx-code-canvas,
+.agentx-panel {
+  border-color: var(--nova-border) !important;
+  box-shadow:
+    0 18px 70px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+.agentx-main-panel {
+  background:
+    linear-gradient(180deg, rgba(9, 15, 29, 0.78), rgba(4, 9, 20, 0.7)),
+    radial-gradient(circle at 22% 0%, rgba(34, 211, 238, 0.08), transparent 26rem) !important;
+  border-radius: 1.7rem !important;
+}
+
+.agentx-sidebar-panel {
+  background:
+    linear-gradient(180deg, rgba(9, 15, 29, 0.82), rgba(4, 9, 20, 0.72)),
+    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.08), transparent 18rem) !important;
+  border-radius: 1.55rem !important;
+}
+
+.agentx-sidebar-panel [class*="rounded"],
+.agentx-settings-menu,
+.agentx-sidebar-panel .agentx-panel {
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  background: rgba(6, 12, 24, 0.52) !important;
+}
+
+.agentx-sidebar-panel button:not(.agentx-dropdown__trigger) {
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  background: rgba(15, 23, 42, 0.48) !important;
+  box-shadow: none !important;
+}
+
+.agentx-sidebar-panel button:not(.agentx-dropdown__trigger):hover,
+.agentx-sidebar-panel button:not(.agentx-dropdown__trigger):focus-visible {
+  border-color: rgba(34, 211, 238, 0.34) !important;
+  background: rgba(12, 24, 42, 0.78) !important;
+  transform: translateY(-1px);
+}
+
+.agentx-topbar {
+  border: 1px solid rgba(148, 163, 184, 0.11) !important;
+  border-radius: 1.25rem;
+  padding: 0.85rem 1rem !important;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.64), rgba(2, 6, 23, 0.42)),
+    radial-gradient(circle at 0% 50%, rgba(34, 211, 238, 0.08), transparent 20rem);
+  backdrop-filter: blur(18px);
+}
+
+.agentx-feed {
+  background:
+    linear-gradient(180deg, rgba(5, 10, 22, 0.68), rgba(2, 6, 23, 0.76)),
+    radial-gradient(circle at 50% 0%, rgba(96, 165, 250, 0.06), transparent 28rem) !important;
+  border-radius: 1.6rem !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+.agentx-composer {
+  background:
+    linear-gradient(180deg, rgba(10, 16, 30, 0.88), rgba(4, 9, 20, 0.84)),
+    radial-gradient(circle at 95% 0%, rgba(34, 211, 238, 0.12), transparent 22rem) !important;
+  border-radius: 1.6rem !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+.agentx-button {
+  border-radius: 9999px !important;
+  letter-spacing: 0.01em;
+}
+
+.agentx-button--primary {
+  background: linear-gradient(135deg, #22d3ee, #60a5fa) !important;
+  color: #03101b !important;
+  border-color: rgba(125, 211, 252, 0.62) !important;
+  box-shadow: 0 10px 28px rgba(34, 211, 238, 0.18) !important;
+}
+
+.agentx-button--secondary,
+.agentx-button--utility {
+  background: rgba(15, 23, 42, 0.58) !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+.agentx-input,
+.agentx-textarea,
+.agentx-dropdown__trigger {
+  border-radius: 1rem !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+  background: rgba(2, 6, 23, 0.58) !important;
+}
+
+.agentx-textarea:focus,
+.agentx-input:focus-visible {
+  border-color: rgba(34, 211, 238, 0.42) !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1) !important;
+}
+
+.agentx-message-row {
+  gap: 0.75rem !important;
+}
+
+.agentx-message-row--user .agentx-message-row__body {
+  max-width: min(90%, 54rem) !important;
+}
+
+.agentx-message-row--assistant .agentx-message-row__body {
+  max-width: min(94%, 62rem) !important;
+}
+
+.agentx-message-bubble {
+  border-radius: 1.35rem !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.18) !important;
+}
+
+.agentx-message-bubble--assistant {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.78), rgba(6, 12, 24, 0.74)),
+    radial-gradient(circle at 0% 0%, rgba(34, 211, 238, 0.07), transparent 18rem) !important;
+}
+
+.agentx-message-bubble--user {
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.24), rgba(59, 130, 246, 0.18)),
+    rgba(15, 23, 42, 0.66) !important;
+  border-color: rgba(125, 211, 252, 0.22) !important;
+}
+
+.agentx-message-avatar {
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.12), 0 12px 22px rgba(0, 0, 0, 0.22) !important;
+}
+
+.agentx-feed-empty {
+  border-style: solid !important;
+  border-color: rgba(125, 211, 252, 0.18) !important;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(2, 6, 23, 0.42)),
+    radial-gradient(circle at 50% 0%, rgba(34, 211, 238, 0.12), transparent 22rem) !important;
+}
+
+.agentx-feed-empty__eyebrow::before {
+  content: "✦ ";
+  color: var(--nova-cyan);
+}
+
+.agentx-update-ticker {
+  position: relative;
+  margin-top: 0.7rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background:
+    linear-gradient(90deg, rgba(15, 23, 42, 0.72), rgba(8, 15, 27, 0.54)),
+    radial-gradient(circle at 0% 50%, rgba(34, 211, 238, 0.12), transparent 18rem);
+  color: rgba(226, 232, 240, 0.82);
+  min-height: 2.2rem;
+}
+
+.agentx-update-ticker--update {
+  border-color: rgba(34, 211, 238, 0.34);
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.12);
+}
+
+.agentx-update-ticker__track {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  animation: agentx-update-scroll 26s linear infinite;
+}
+
+.agentx-update-ticker:hover .agentx-update-ticker__track {
+  animation-play-state: paused;
+}
+
+.agentx-update-ticker__inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: max-content;
+  padding: 0.48rem 1.05rem;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.agentx-update-ticker__inner--ghost {
+  opacity: 0.8;
+}
+
+.agentx-update-ticker__badge {
+  border-radius: 9999px;
+  background: rgba(34, 211, 238, 0.14);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  color: #bae6fd;
+  padding: 0.16rem 0.52rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.agentx-update-ticker--update .agentx-update-ticker__badge {
+  background: rgba(34, 211, 238, 0.22);
+  color: #ecfeff;
+}
+
+.agentx-update-ticker__text {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.agentx-update-ticker__version {
+  color: rgba(148, 163, 184, 0.72);
+  font-size: 0.72rem;
+}
+
+@keyframes agentx-update-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentx-update-ticker__track {
+    animation: none;
+  }
+}

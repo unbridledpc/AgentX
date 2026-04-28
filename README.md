@@ -186,7 +186,7 @@ New feature/change history.
 Fresh Ubuntu 24 installs can start with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/VielNexus/NexAI/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unbridledpc/AgentX/main/install.sh | bash
 ```
 
 After install:
@@ -386,3 +386,47 @@ Do not commit:
 ## Status
 
 AgentX is under active development. The current direction is production-minded and supervised, but the platform is still evolving in install flow, extension lifecycle, quality gates, RAG knowledge, and autonomous job execution.
+
+## AgentX Nova UI
+
+AgentXWeb includes a modernized Nova UI shell designed to feel closer to current assistant workspaces such as ChatGPT, OpenWebUI, and OpenClaw while keeping AgentX's local-first workflow.
+
+Nova UI includes:
+
+- softer dark panels and cleaner spacing
+- refreshed sidebar and chat surface styling
+- modern assistant/user message bubbles
+- polished composer and controls
+- visible GitHub update ticker below the top bar
+
+### GitHub update ticker
+
+The web UI can check GitHub for the latest commit on the configured branch and show a scrolling update/status bar. This is useful for public GitHub users who want to know when a newer AgentX version is available.
+
+Runtime config example in `AgentXWeb/public/agentxweb.config.js`:
+
+```js
+window.__AGENTXWEB_CONFIG__ = {
+  apiBase: "http://192.168.68.210:8000",
+  updateFeed: {
+    enabled: true,
+    repo: "unbridledpc/AgentX",
+    branch: "main",
+    currentVersion: "local-vm",
+    // Optional: set this during builds to detect newer GitHub commits.
+    // currentSha: "abcdef1"
+  }
+};
+```
+
+Equivalent Vite env vars:
+
+```env
+VITE_AGENTX_UPDATE_CHECK_ENABLED=true
+VITE_AGENTX_UPDATE_REPO=unbridledpc/AgentX
+VITE_AGENTX_UPDATE_BRANCH=main
+VITE_AGENTX_APP_VERSION=local-vm
+VITE_AGENTX_BUILD_SHA=
+```
+
+When `currentSha` / `VITE_AGENTX_BUILD_SHA` is set, the ticker can show a clear **New GitHub update available** state when GitHub's latest branch commit differs from the local build.

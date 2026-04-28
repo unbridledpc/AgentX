@@ -54,7 +54,12 @@ def _cors_allow_origins() -> list[str]:
         "http://127.0.0.1:5174",
         "http://tauri.localhost",
         "https://tauri.localhost",
-        "tauri://localhost",
+        "tauri://localhost"
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://192.168.68.210:5173",
+
+
     ]
     for origin in _split_origins(os.environ.get("AGENTX_CORS_ALLOW_ORIGINS")):
         if origin not in origins:
