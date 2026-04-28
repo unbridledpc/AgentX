@@ -34,6 +34,7 @@ export type StatusResponse = {
   chat_error?: string | null;
   available_chat_models?: Record<string, string[]>;
   ollama_base_url?: string;
+  ollama_endpoints?: Record<string, { base_url?: string; reachable?: boolean; error?: string | null; error_type?: string | null; models?: string[]; gpu_pin?: string | null }>;
   models_last_refresh?: number | null;
   models_refreshing?: boolean;
   models_error?: string | null;
@@ -489,6 +490,16 @@ export type AgentXSettings = {
   chatModel?: string;
   ollamaBaseUrl?: string;
   ollamaRequestTimeoutS?: number;
+  ollamaMultiEndpointEnabled?: boolean;
+  ollamaFastBaseUrl?: string;
+  ollamaHeavyBaseUrl?: string;
+  ollamaFastModel?: string;
+  ollamaHeavyModel?: string;
+  ollamaDraftEndpoint?: "default" | "fast" | "heavy";
+  ollamaReviewEndpoint?: "default" | "fast" | "heavy";
+  ollamaRepairEndpoint?: "default" | "fast" | "heavy";
+  ollamaFastGpuPin?: string;
+  ollamaHeavyGpuPin?: string;
   assistantDisplayName?: string;
   userDisplayName?: string;
   appearancePreset?: "agentx" | "midnight" | "ice" | "emerald" | "violet" | "amber";
@@ -506,6 +517,16 @@ export const DEFAULT_AGENTX_SETTINGS: Required<AgentXSettings> = {
   chatModel: "stub",
   ollamaBaseUrl: "http://127.0.0.1:11434",
   ollamaRequestTimeoutS: 60,
+  ollamaMultiEndpointEnabled: false,
+  ollamaFastBaseUrl: "http://127.0.0.1:11434",
+  ollamaHeavyBaseUrl: "http://127.0.0.1:11435",
+  ollamaFastModel: "qwen2.5-coder:7b-4k-gpu",
+  ollamaHeavyModel: "devstral-small-2:24b-4k-gpu",
+  ollamaDraftEndpoint: "fast",
+  ollamaReviewEndpoint: "heavy",
+  ollamaRepairEndpoint: "heavy",
+  ollamaFastGpuPin: "1",
+  ollamaHeavyGpuPin: "0",
   assistantDisplayName: "AgentX",
   userDisplayName: "You",
   appearancePreset: "agentx",

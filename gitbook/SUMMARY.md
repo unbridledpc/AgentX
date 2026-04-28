@@ -17,3 +17,4 @@
 * [Troubleshooting](troubleshooting.md)
 
 * [Knowledge Ingest Manager](knowledge-ingest.md)
+  * [Multi-Ollama Endpoints](multi-ollama-endpoints.md)

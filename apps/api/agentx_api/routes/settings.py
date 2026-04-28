@@ -176,6 +176,16 @@ class SettingsModel(BaseModel):
     chatModel: str = config.openai_model if config.openai_api_key else "stub"
     ollamaBaseUrl: str = config.ollama_base_url
     ollamaRequestTimeoutS: float = 60.0
+    ollamaMultiEndpointEnabled: bool = False
+    ollamaFastBaseUrl: str = config.ollama_base_url
+    ollamaHeavyBaseUrl: str = config.ollama_base_url
+    ollamaFastModel: str = "qwen2.5-coder:7b-4k-gpu"
+    ollamaHeavyModel: str = "devstral-small-2:24b-4k-gpu"
+    ollamaDraftEndpoint: str = "fast"
+    ollamaReviewEndpoint: str = "heavy"
+    ollamaRepairEndpoint: str = "heavy"
+    ollamaFastGpuPin: str = "1"
+    ollamaHeavyGpuPin: str = "0"
     assistantDisplayName: str = "AgentX"
     userDisplayName: str = "You"
     appearancePreset: str = "agentx"
@@ -188,6 +198,45 @@ class SettingsModel(BaseModel):
 def effective_ollama_base_url(settings: SettingsModel | None = None) -> str:
     chosen = settings or _read_settings()
     return normalize_ollama_base_url(getattr(chosen, "ollamaBaseUrl", "") or config.ollama_base_url)
+
+
+def _endpoint_key(value: str | None, fallback: str) -> str:
+    key = (value or fallback or "default").strip().lower()
+    if key not in {"default", "fast", "heavy"}:
+        return fallback
+    return key
+
+
+def effective_ollama_endpoint_base_url(settings: SettingsModel | None = None, endpoint: str = "default") -> str:
+    chosen = settings or _read_settings()
+    if not getattr(chosen, "ollamaMultiEndpointEnabled", False):
+        return effective_ollama_base_url(chosen)
+    key = _endpoint_key(endpoint, "default")
+    if key == "fast":
+        return normalize_ollama_base_url(getattr(chosen, "ollamaFastBaseUrl", "") or effective_ollama_base_url(chosen))
+    if key == "heavy":
+        return normalize_ollama_base_url(getattr(chosen, "ollamaHeavyBaseUrl", "") or effective_ollama_base_url(chosen))
+    return effective_ollama_base_url(chosen)
+
+
+def effective_collaborative_ollama_routes(settings: SettingsModel | None = None) -> dict:
+    chosen = settings or _read_settings()
+    draft_endpoint = _endpoint_key(getattr(chosen, "ollamaDraftEndpoint", None), "fast")
+    review_endpoint = _endpoint_key(getattr(chosen, "ollamaReviewEndpoint", None), "heavy")
+    repair_endpoint = _endpoint_key(getattr(chosen, "ollamaRepairEndpoint", None), "heavy")
+    return {
+        "enabled": bool(getattr(chosen, "ollamaMultiEndpointEnabled", False)),
+        "draft_endpoint": draft_endpoint,
+        "review_endpoint": review_endpoint,
+        "repair_endpoint": repair_endpoint,
+        "draft_base_url": effective_ollama_endpoint_base_url(chosen, draft_endpoint),
+        "review_base_url": effective_ollama_endpoint_base_url(chosen, review_endpoint),
+        "repair_base_url": effective_ollama_endpoint_base_url(chosen, repair_endpoint),
+        "fast_base_url": effective_ollama_endpoint_base_url(chosen, "fast"),
+        "heavy_base_url": effective_ollama_endpoint_base_url(chosen, "heavy"),
+        "fast_gpu_pin": str(getattr(chosen, "ollamaFastGpuPin", "") or ""),
+        "heavy_gpu_pin": str(getattr(chosen, "ollamaHeavyGpuPin", "") or ""),
+    }
 
 
 def effective_ollama_request_timeout_s(settings: SettingsModel | None = None) -> float:
@@ -246,20 +295,18 @@ def get_settings() -> SettingsModel:
 @router.post("/settings", response_model=SettingsModel)
 def save_settings(settings: SettingsModel) -> SettingsModel:
     global _CACHED_SETTINGS
-    if not getattr(settings, "ollamaBaseUrl", "").strip():
-        settings = settings.model_copy(
-            update={
-                "ollamaBaseUrl": config.ollama_base_url,
-                "ollamaRequestTimeoutS": effective_ollama_request_timeout_s(settings),
-            }
-        )
-    else:
-        settings = settings.model_copy(
-            update={
-                "ollamaBaseUrl": effective_ollama_base_url(settings),
-                "ollamaRequestTimeoutS": effective_ollama_request_timeout_s(settings),
-            }
-        )
+    updates = {
+        "ollamaBaseUrl": effective_ollama_base_url(settings) if getattr(settings, "ollamaBaseUrl", "").strip() else config.ollama_base_url,
+        "ollamaRequestTimeoutS": effective_ollama_request_timeout_s(settings),
+        "ollamaFastBaseUrl": normalize_ollama_base_url(getattr(settings, "ollamaFastBaseUrl", "") or getattr(settings, "ollamaBaseUrl", "") or config.ollama_base_url),
+        "ollamaHeavyBaseUrl": normalize_ollama_base_url(getattr(settings, "ollamaHeavyBaseUrl", "") or getattr(settings, "ollamaBaseUrl", "") or config.ollama_base_url),
+        "ollamaDraftEndpoint": _endpoint_key(getattr(settings, "ollamaDraftEndpoint", None), "fast"),
+        "ollamaReviewEndpoint": _endpoint_key(getattr(settings, "ollamaReviewEndpoint", None), "heavy"),
+        "ollamaRepairEndpoint": _endpoint_key(getattr(settings, "ollamaRepairEndpoint", None), "heavy"),
+        "ollamaFastGpuPin": str(getattr(settings, "ollamaFastGpuPin", "") or ""),
+        "ollamaHeavyGpuPin": str(getattr(settings, "ollamaHeavyGpuPin", "") or ""),
+    }
+    settings = settings.model_copy(update=updates)
     _write_settings(settings)
     with _CACHE_LOCK:
         _CACHED_SETTINGS = settings

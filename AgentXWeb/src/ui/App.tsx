@@ -1495,8 +1495,8 @@ ${script.content}
 
   const acceptCollaborativeCodingSuggestion = useCallback(() => {
     if (!handoffSuggestion || sending) return;
-    const draftModel = handoffSuggestion.draftModel || "qwen2.5-coder:7b-4k-gpu";
-    const reviewModel = handoffSuggestion.reviewModel || handoffSuggestion.model || "devstral-small-2:24b-4k-gpu";
+    const draftModel = (appSettings.ollamaMultiEndpointEnabled ? appSettings.ollamaFastModel : "") || handoffSuggestion.draftModel || "qwen2.5-coder:7b-4k-gpu";
+    const reviewModel = (appSettings.ollamaMultiEndpointEnabled ? appSettings.ollamaHeavyModel : "") || handoffSuggestion.reviewModel || handoffSuggestion.model || "devstral-small-2:24b-4k-gpu";
     const prompt = buildHandoffPrompt(handoffSuggestion);
     const selection = {
       provider: handoffSuggestion.provider,
@@ -1512,7 +1512,7 @@ ${script.content}
     };
     setHandoffSuggestion(null);
     void send(prompt, selection);
-  }, [handoffSuggestion, send, sending]);
+  }, [appSettings.ollamaFastModel, appSettings.ollamaHeavyModel, appSettings.ollamaMultiEndpointEnabled, handoffSuggestion, send, sending]);
 
   const editMessageIntoComposer = useCallback((content: string) => {
     setDraft(content);

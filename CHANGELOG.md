@@ -29,3 +29,10 @@
 
 ### Changed
 - Web UI now supports a modern update/status strip below the top bar for release awareness.
+
+## Multi-Ollama endpoint routing
+
+- Added multi-Ollama endpoint settings for fast/heavy local model routing.
+- Draft + Review can now route draft requests to a fast endpoint and review/repair requests to a heavy endpoint.
+- Added endpoint metadata to status responses, including configured base URLs and GPU pin labels.
+- Added Settings UI controls for fast/heavy endpoint URLs, preferred models, route selection, and GPU pin notes.

@@ -430,3 +430,30 @@ VITE_AGENTX_BUILD_SHA=
 ```
 
 When `currentSha` / `VITE_AGENTX_BUILD_SHA` is set, the ticker can show a clear **New GitHub update available** state when GitHub's latest branch commit differs from the local build.
+
+## Multi-Ollama Endpoint Routing
+
+AgentX supports a single Ollama endpoint by default and can optionally route collaborative coding through multiple Ollama servers. This is useful when a workstation has more than one GPU.
+
+Recommended dual-GPU layout:
+
+- Fast endpoint / smaller GPU: `http://192.168.68.50:11434`
+  - Suggested model: `qwen2.5-coder:7b-4k-gpu`
+  - Example Windows pin: `CUDA_VISIBLE_DEVICES=1`
+- Heavy endpoint / larger GPU: `http://192.168.68.50:11435`
+  - Suggested model: `devstral-small-2:24b-4k-gpu`
+  - Example Windows pin: `CUDA_VISIBLE_DEVICES=0`
+
+AgentX does not directly control GPU assignment on a remote Windows Ollama host. The Windows startup scripts should start each Ollama server with the correct `CUDA_VISIBLE_DEVICES` and port. AgentX stores the GPU pin values as labels/documentation and routes requests by endpoint URL.
+
+In the UI, open **Settings -> Chat Model** and enable **Multi-Ollama endpoint routing**. Configure:
+
+- Fast endpoint URL and model
+- Heavy endpoint URL and model
+- Draft route, review route, and repair route
+
+For Draft + Review, the recommended routing is:
+
+- Draft route: Fast
+- Review route: Heavy
+- Repair route: Heavy

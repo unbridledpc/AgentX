@@ -12,11 +12,12 @@ from pydantic import BaseModel
 
 from agentx_api.config import config
 from agentx_api.ollama import fetch_ollama_models
-from agentx_api.routes.settings import _read_settings, effective_ollama_base_url
+from agentx_api.routes.settings import _read_settings, effective_collaborative_ollama_routes, effective_ollama_base_url
 
 router = APIRouter(tags=["status"])
 
-_MODEL_CACHE: Dict[str, List[str]] = {"openai": [], "ollama": []}
+_MODEL_CACHE: Dict[str, List[str]] = {"openai": [], "ollama": [], "ollama_fast": [], "ollama_heavy": []}
+_ENDPOINT_STATUS: Dict[str, dict] = {}
 _MODEL_CACHE_LOCK = threading.Lock()
 _MODEL_LAST_REFRESH: float | None = None
 _MODEL_REFRESHING = False
@@ -50,13 +51,14 @@ def _fetch_openai_models() -> List[str]:
 
 
 def _refresh_models_worker() -> None:
-    global _MODEL_CACHE, _MODEL_LAST_REFRESH, _MODEL_REFRESHING, _MODEL_LAST_ERROR
+    global _MODEL_CACHE, _ENDPOINT_STATUS, _MODEL_LAST_REFRESH, _MODEL_REFRESHING, _MODEL_LAST_ERROR
     try:
         openai_models: List[str] = []
         ollama_models: List[str] = []
         errors: List[str] = []
         settings = _read_settings()
         ollama_base_url = effective_ollama_base_url(settings)
+        routes = effective_collaborative_ollama_routes(settings)
 
         try:
             openai_models = _fetch_openai_models()
@@ -66,13 +68,39 @@ def _refresh_models_worker() -> None:
         except Exception as e:
             errors.append(f"openai: {e}")
 
-        ollama_result = fetch_ollama_models(base_url=ollama_base_url, timeout_s=config.ollama_timeout_s)
-        ollama_models = ollama_result.models
-        if ollama_result.error:
-            errors.append(ollama_result.error)
+        endpoint_status: Dict[str, dict] = {}
+        endpoint_models: Dict[str, List[str]] = {}
+        endpoints = {
+            "default": ollama_base_url,
+            "fast": str(routes.get("fast_base_url") or ollama_base_url),
+            "heavy": str(routes.get("heavy_base_url") or ollama_base_url),
+        }
+        for key, url in endpoints.items():
+            result = fetch_ollama_models(base_url=url, timeout_s=config.ollama_timeout_s)
+            endpoint_models[key] = result.models
+            endpoint_status[key] = {
+                "base_url": result.base_url,
+                "reachable": result.reachable,
+                "error": result.error,
+                "error_type": result.error_type,
+                "models": result.models,
+                "gpu_pin": routes.get("fast_gpu_pin") if key == "fast" else routes.get("heavy_gpu_pin") if key == "heavy" else None,
+            }
+            if key == "default":
+                ollama_models = result.models
+            if result.error:
+                errors.append(f"ollama {key}: {result.error}")
+
+        merged_ollama = sorted(set(endpoint_models.get("default", []) + endpoint_models.get("fast", []) + endpoint_models.get("heavy", [])))
 
         with _MODEL_CACHE_LOCK:
-            _MODEL_CACHE = {"openai": openai_models, "ollama": ollama_models}
+            _MODEL_CACHE = {
+                "openai": openai_models,
+                "ollama": merged_ollama,
+                "ollama_fast": endpoint_models.get("fast", []),
+                "ollama_heavy": endpoint_models.get("heavy", []),
+            }
+            _ENDPOINT_STATUS = endpoint_status
             _MODEL_LAST_REFRESH = time.time()
             _MODEL_LAST_ERROR = "; ".join(errors) if errors else None
             _MODEL_REFRESHING = False
@@ -111,6 +139,7 @@ class StatusResponse(BaseModel):
     chat_error: str | None = None
     available_chat_models: Dict[str, List[str]]
     ollama_base_url: str
+    ollama_endpoints: Dict[str, dict] = {}
     models_last_refresh: float | None = None
     models_refreshing: bool
     models_error: str | None = None
@@ -134,6 +163,7 @@ def status(refresh: bool = Query(False)) -> StatusResponse:
         last_refresh = _MODEL_LAST_REFRESH
         refreshing = _MODEL_REFRESHING
         last_error = _MODEL_LAST_ERROR
+        endpoint_status = dict(_ENDPOINT_STATUS)
 
     chat_ready = True
     chat_error: str | None = None
@@ -184,6 +214,7 @@ def status(refresh: bool = Query(False)) -> StatusResponse:
         chat_error=chat_error,
         available_chat_models=models,
         ollama_base_url=ollama_base_url,
+        ollama_endpoints=endpoint_status,
         models_last_refresh=last_refresh,
         models_refreshing=refreshing,
         models_error=last_error,

@@ -21,7 +21,7 @@ from agentx_api.ollama import normalize_ollama_base_url
 from agentx_api.fs_access.errors import FsAccessDenied, FsAccessError, FsNotFound, FsTooLarge
 from agentx_api.fs_access.ops import apply_unified_diff, delete_path, list_dir, mkdir, move_path, read_text, write_text
 from agentx_api.fs_access.policy import FsPolicy
-from agentx_api.routes.settings import _read_settings, effective_ollama_base_url, effective_ollama_request_timeout_s
+from agentx_api.routes.settings import _read_settings, effective_collaborative_ollama_routes, effective_ollama_base_url, effective_ollama_endpoint_base_url, effective_ollama_request_timeout_s
 from agentx_api.rag.chunking import chunk_text
 from agentx_api.rag.session import session_tracker
 from agentx_api.rag.store import RagStore
@@ -214,7 +214,8 @@ def _provider_http_exception(exc: ProviderError, *, status_code: int = 502) -> H
 
 def _ollama_generate(message: str, model: str) -> str:
     settings = _read_settings()
-    base_url = normalize_ollama_base_url(effective_ollama_base_url(settings))
+    endpoint = getattr(settings, "ollamaDraftEndpoint", "default") if getattr(settings, "ollamaMultiEndpointEnabled", False) else "default"
+    base_url = normalize_ollama_base_url(effective_ollama_endpoint_base_url(settings, endpoint))
     timeout_s = effective_ollama_request_timeout_s(settings)
     try:
         return ollama_generate(
@@ -951,14 +952,15 @@ def _collaborative_pipeline_requested(request: ChatRequest) -> bool:
     return (pipeline.mode or "").strip().lower() in {"draft_review", "collaborative"}
 
 
-def _collaborative_models(request: ChatRequest, fallback_model: str) -> tuple[str, str]:
+def _collaborative_models(request: ChatRequest, fallback_model: str, settings=None) -> tuple[str, str]:
+    settings = settings or _read_settings()
     pipeline = request.coding_pipeline
-    draft_model = (getattr(pipeline, "draft_model", None) or "qwen2.5-coder:7b-4k-gpu").strip()
-    review_model = (getattr(pipeline, "review_model", None) or fallback_model or "devstral-small-2:24b-4k-gpu").strip()
+    draft_model = (getattr(pipeline, "draft_model", None) or "").strip() if pipeline else ""
+    review_model = (getattr(pipeline, "review_model", None) or "").strip() if pipeline else ""
     if not draft_model:
-        draft_model = "qwen2.5-coder:7b-4k-gpu"
+        draft_model = (getattr(settings, "ollamaFastModel", "") or "").strip() or "qwen2.5-coder:7b-4k-gpu"
     if not review_model:
-        review_model = fallback_model or "devstral-small-2:24b-4k-gpu"
+        review_model = (getattr(settings, "ollamaHeavyModel", "") or "").strip() or fallback_model or "devstral-small-2:24b-4k-gpu"
     return draft_model, review_model
 
 
@@ -1169,6 +1171,7 @@ def _quality_gate_report(
     repaired: bool,
     draft_model: str | None = None,
     review_model: str | None = None,
+    endpoints: dict | None = None,
 ) -> dict:
     initial = initial_gate or {"passed": True, "failures": [], "warnings": [], "language": "unknown"}
     final = final_gate or initial
@@ -1205,6 +1208,7 @@ def _quality_gate_report(
         "checks_warned": checks_warned,
         "draft_model": draft_model,
         "review_model": review_model,
+        "endpoints": endpoints or {},
     }
 
 
@@ -1293,7 +1297,9 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
             yield _stream_event("meta", {"provider": provider, "model": model, "ts": time.time()})
 
             if provider == "ollama" and _collaborative_pipeline_requested(request):
-                draft_model, review_model = _collaborative_models(request, model)
+                settings = _read_settings()
+                draft_model, review_model = _collaborative_models(request, model, settings)
+                routes = effective_collaborative_ollama_routes(settings)
                 thread_id = requested_thread_id or session_tracker.get_active_thread(user_id or "")
                 if thread_id and user_id:
                     ensure_thread_owner(thread_id, owner_id=user_id)
@@ -1313,8 +1319,9 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     if web_parts:
                         retrieved = (retrieved + "\n\n" if retrieved else "") + "\n\n".join(web_parts)
 
-                settings = _read_settings()
-                base_url = normalize_ollama_base_url(effective_ollama_base_url(settings))
+                draft_base_url = normalize_ollama_base_url(routes.get("draft_base_url") or effective_ollama_base_url(settings))
+                review_base_url = normalize_ollama_base_url(routes.get("review_base_url") or effective_ollama_base_url(settings))
+                repair_base_url = normalize_ollama_base_url(routes.get("repair_base_url") or review_base_url)
                 timeout_s = effective_ollama_request_timeout_s(settings)
                 system_prompt = _system_prompt_for_request(response_mode, request.message)
 
@@ -1325,13 +1332,15 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                         "provider": "ollama",
                         "model": draft_model,
                         "review_model": review_model,
+                        "endpoint": routes.get("draft_endpoint"),
+                        "base_url": draft_base_url,
                         "ts": time.time(),
                     },
                 )
                 draft_prompt = _collaborative_draft_prompt(system_prompt, retrieved, short_term)
                 draft = ollama_generate(
                     cfg=OllamaConfig(
-                        base_url=base_url,
+                        base_url=draft_base_url,
                         model=draft_model,
                         timeout_s=timeout_s,
                         max_tool_iters=max(1, int(getattr(config, "ollama_tool_max_iters", 4))),
@@ -1349,6 +1358,8 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                         "provider": "ollama",
                         "model": review_model,
                         "draft_model": draft_model,
+                        "endpoint": routes.get("review_endpoint"),
+                        "base_url": review_base_url,
                         "ts": time.time(),
                     },
                 )
@@ -1362,7 +1373,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                 )
                 content = ollama_generate(
                     cfg=OllamaConfig(
-                        base_url=base_url,
+                        base_url=review_base_url,
                         model=review_model,
                         timeout_s=timeout_s,
                         max_tool_iters=max(1, int(getattr(config, "ollama_tool_max_iters", 4))),
@@ -1392,6 +1403,8 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                                 "model": review_model,
                                 "repair_pass": repair_pass,
                                 "quality_gate": gate,
+                                "endpoint": routes.get("repair_endpoint"),
+                                "base_url": repair_base_url,
                                 "ts": time.time(),
                             },
                         )
@@ -1407,7 +1420,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                         )
                         repaired = ollama_generate(
                             cfg=OllamaConfig(
-                                base_url=base_url,
+                                base_url=repair_base_url,
                                 model=review_model,
                                 timeout_s=timeout_s,
                                 max_tool_iters=max(1, int(getattr(config, "ollama_tool_max_iters", 4))),
@@ -1428,6 +1441,17 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     repaired=repaired_successfully,
                     draft_model=draft_model,
                     review_model=review_model,
+                    endpoints={
+                        "multi_endpoint_enabled": routes.get("enabled"),
+                        "draft_endpoint": routes.get("draft_endpoint"),
+                        "draft_base_url": draft_base_url,
+                        "review_endpoint": routes.get("review_endpoint"),
+                        "review_base_url": review_base_url,
+                        "repair_endpoint": routes.get("repair_endpoint"),
+                        "repair_base_url": repair_base_url,
+                        "fast_gpu_pin": routes.get("fast_gpu_pin"),
+                        "heavy_gpu_pin": routes.get("heavy_gpu_pin"),
+                    },
                 )
 
                 first_token_at = time.perf_counter()
@@ -1468,7 +1492,8 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                 system_prompt = _system_prompt_for_request(response_mode, request.message)
                 prompt = _ollama_prompt(system_prompt, retrieved, short_term)
                 settings = _read_settings()
-                base_url = normalize_ollama_base_url(effective_ollama_base_url(settings))
+                endpoint = getattr(settings, "ollamaDraftEndpoint", "default") if getattr(settings, "ollamaMultiEndpointEnabled", False) else "default"
+                base_url = normalize_ollama_base_url(effective_ollama_endpoint_base_url(settings, endpoint))
                 timeout_s = effective_ollama_request_timeout_s(settings)
                 chunks: list[str] = []
                 for chunk in ollama_generate_stream(
