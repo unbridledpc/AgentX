@@ -12,6 +12,7 @@ from agentx.config import AgentXConfig
 from agentx.core.chunking import chunk_text
 from agentx.core.fs_policy import FsPolicyError, validate_path
 from agentx.core.rag_store import RagStore
+from agentx.core.project_memory import ProjectMemoryStore, ProjectMemoryEntry, ProjectMemoryHit
 
 
 class MemoryError(RuntimeError):
@@ -53,6 +54,7 @@ class Memory:
     def __init__(self, cfg: AgentXConfig):
         self.cfg = cfg
         self._store: RagStore | None = None
+        self._project_store: ProjectMemoryStore | None = None
 
     def ensure_writable(self) -> tuple[bool, str | None]:
         if not self.cfg.memory.enabled:
@@ -221,6 +223,123 @@ class Memory:
             )
         return self._apply_thresholds(query=query, chunks=out, k=k)
 
+
+    def add_project_memory(
+        self,
+        *,
+        title: str,
+        summary: str,
+        scope: str,
+        kind: str,
+        durability: str = "medium",
+        module: str | None = None,
+        file_path: str | None = None,
+        task_id: str | None = None,
+        source: str = "manual",
+        tags: list[str] | None = None,
+        affected_files: list[str] | None = None,
+        decisions: list[str] | None = None,
+        assumptions_corrected: list[str] | None = None,
+        evidence: list[str] | None = None,
+        confidence: float = 0.75,
+        meta: dict[str, Any] | None = None,
+    ) -> ProjectMemoryEntry:
+        """Add one scoped durable project-memory entry.
+
+        This is the Phase 1 entrypoint used by Draft Workspace, task reflection,
+        tools, and future UI actions. It stores the structured entry and indexes
+        searchable rendered content into the existing SQLite FTS memory backend.
+        """
+
+        if not self.cfg.memory.enabled:
+            raise MemoryError("Memory is disabled.")
+        return self._get_project_store().add_entry(
+            title=title,
+            summary=summary,
+            scope=scope,
+            kind=kind,
+            durability=durability,
+            module=module,
+            file_path=file_path,
+            task_id=task_id,
+            source=source,
+            tags=tags or [],
+            affected_files=affected_files or [],
+            decisions=decisions or [],
+            assumptions_corrected=assumptions_corrected or [],
+            evidence=evidence or [],
+            confidence=confidence,
+            meta=meta or {},
+        )
+
+    def ingest_project_raw(
+        self,
+        *,
+        source_id: str,
+        text: str,
+        scope_hint: str | None = None,
+        tags: list[str] | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> ProjectMemoryEntry:
+        if not self.cfg.memory.enabled:
+            raise MemoryError("Memory is disabled.")
+        return self._get_project_store().ingest_raw(
+            source_id=source_id,
+            text=text,
+            scope_hint=scope_hint,
+            tags=tags or [],
+            meta=meta or {},
+        )
+
+    def retrieve_project_memory(
+        self,
+        query: str,
+        *,
+        k: int = 8,
+        scopes: list[str] | None = None,
+        kinds: list[str] | None = None,
+        module: str | None = None,
+        file_path: str | None = None,
+        task_id: str | None = None,
+        include_task_notes: bool = True,
+    ) -> list[ProjectMemoryHit]:
+        if not self.cfg.memory.enabled:
+            return []
+        return self._get_project_store().retrieve(
+            query,
+            k=k,
+            scopes=scopes or [],
+            kinds=kinds or [],
+            module=module,
+            file_path=file_path,
+            task_id=task_id,
+            include_task_notes=include_task_notes,
+        )
+
+    def project_context_stack(
+        self,
+        *,
+        task: str,
+        module: str | None = None,
+        files: list[str] | None = None,
+        k: int = 10,
+    ) -> dict[str, Any]:
+        if not self.cfg.memory.enabled:
+            return {"global": [], "module": [], "files": [], "task": []}
+        return self._get_project_store().retrieve_for_task(task, module=module, files=files or [], k=k)
+
+    def list_project_memory(
+        self,
+        *,
+        scope: str | None = None,
+        module: str | None = None,
+        status: str | None = "active",
+        limit: int = 100,
+    ) -> list[ProjectMemoryEntry]:
+        if not self.cfg.memory.enabled:
+            return []
+        return self._get_project_store().list_entries(scope=scope, module=module, status=status, limit=limit)
+
     def stats(self) -> dict[str, Any]:
         if not self.cfg.memory.enabled:
             return {"enabled": False}
@@ -256,6 +375,12 @@ class Memory:
                 tag_counts[key] = tag_counts.get(key, 0) + 1
         top_tags = sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))[:10]
 
+        project_memory_stats = {}
+        try:
+            project_memory_stats = self._get_project_store().stats()
+        except Exception:
+            project_memory_stats = {}
+
         return {
             "enabled": True,
             "backend": self.cfg.memory.backend,
@@ -266,6 +391,7 @@ class Memory:
             "events_count": events_count,
             "db_bytes": db_size,
             "top_tags": [{"tag": t, "count": c} for (t, c) in top_tags],
+            "project_memory": project_memory_stats,
         }
 
     def prune_events(self, *, older_than_days: int, dry_run: bool = False) -> dict[str, Any]:
@@ -381,6 +507,12 @@ class Memory:
         # Keep it small to avoid strict AND matching on irrelevant tokens.
         picked = keywords[:8] if keywords else tokens[:4]
         return " ".join(picked)
+
+
+    def _get_project_store(self) -> ProjectMemoryStore:
+        if self._project_store is None:
+            self._project_store = ProjectMemoryStore(self.cfg, store=self._get_store())
+        return self._project_store
 
     def _get_store(self) -> RagStore:
         if self._store is None:

@@ -427,6 +427,37 @@ def build_parser() -> argparse.ArgumentParser:
     mem_prune.add_argument("--dry-run", action="store_true", help="Do not delete; only report what would be pruned")
     mem_prune.add_argument("--reason", required=True, help="Reason for pruning (required)")
 
+    pmem_add = mem_sub.add_parser("add-project", help="Add scoped project memory")
+    pmem_add.add_argument("--title", required=True)
+    pmem_add.add_argument("--summary", required=True)
+    pmem_add.add_argument("--scope", required=True, choices=("global", "module", "file", "task", "decision", "error"))
+    pmem_add.add_argument("--kind", default="task_note")
+    pmem_add.add_argument("--durability", default="medium", choices=("ephemeral", "low", "medium", "high"))
+    pmem_add.add_argument("--module", default="")
+    pmem_add.add_argument("--file", default="")
+    pmem_add.add_argument("--task-id", default="")
+    pmem_add.add_argument("--tag", action="append", default=[])
+
+    pmem_search = mem_sub.add_parser("search-project", help="Search scoped project memory")
+    pmem_search.add_argument("query")
+    pmem_search.add_argument("--scope", action="append", default=[])
+    pmem_search.add_argument("--kind", action="append", default=[])
+    pmem_search.add_argument("--module", default="")
+    pmem_search.add_argument("--file", default="")
+    pmem_search.add_argument("--k", type=int, default=8)
+
+    pmem_list = mem_sub.add_parser("list-project", help="List scoped project memory entries")
+    pmem_list.add_argument("--scope", default="")
+    pmem_list.add_argument("--module", default="")
+    pmem_list.add_argument("--status", default="active")
+    pmem_list.add_argument("--limit", type=int, default=100)
+
+    pmem_context = mem_sub.add_parser("context-project", help="Build a scoped context stack for a task")
+    pmem_context.add_argument("--task", required=True)
+    pmem_context.add_argument("--module", default="")
+    pmem_context.add_argument("--file", action="append", default=[])
+    pmem_context.add_argument("--k", type=int, default=10)
+
     selfcheck = sub.add_parser("selfcheck", help="Run SelfCheck diagnostics")
     selfcheck.add_argument("--mode", choices=("quick", "full"), default="quick", help="Mode: quick|full (default: quick)")
     selfcheck.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
@@ -907,6 +938,49 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.memory_cmd == "prune":
             out = agent.memory_prune(older_than_days=int(args.older_than_days), reason=args.reason, dry_run=bool(args.dry_run))
+            print(json.dumps(out, ensure_ascii=False, indent=2))
+            return 0
+        if args.memory_cmd == "add-project":
+            entry = agent.memory.add_project_memory(
+                title=args.title,
+                summary=args.summary,
+                scope=args.scope,
+                kind=args.kind,
+                durability=args.durability,
+                module=args.module or None,
+                file_path=args.file or None,
+                task_id=args.task_id or None,
+                tags=list(args.tag or []),
+            )
+            print(json.dumps(entry.to_dict(), ensure_ascii=False, indent=2))
+            return 0
+        if args.memory_cmd == "search-project":
+            hits = agent.memory.retrieve_project_memory(
+                args.query,
+                k=int(args.k),
+                scopes=list(args.scope or []),
+                kinds=list(args.kind or []),
+                module=args.module or None,
+                file_path=args.file or None,
+            )
+            print(json.dumps([h.to_dict() for h in hits], ensure_ascii=False, indent=2))
+            return 0
+        if args.memory_cmd == "list-project":
+            entries = agent.memory.list_project_memory(
+                scope=args.scope or None,
+                module=args.module or None,
+                status=args.status or None,
+                limit=int(args.limit),
+            )
+            print(json.dumps([e.to_dict() for e in entries], ensure_ascii=False, indent=2))
+            return 0
+        if args.memory_cmd == "context-project":
+            out = agent.memory.project_context_stack(
+                task=args.task,
+                module=args.module or None,
+                files=list(args.file or []),
+                k=int(args.k),
+            )
             print(json.dumps(out, ensure_ascii=False, indent=2))
             return 0
         return 2

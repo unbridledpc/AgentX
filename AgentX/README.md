@@ -35,3 +35,7 @@ The bundle-local bootstrap step:
 - then starts `agentx setup` so AgentX can provision its managed runtime separately
 
 The bootstrap environment is not the main runtime. For `standard`, `server`, and `developer` profiles, `agentx setup` still provisions the real managed runtime under `runtime_root/venv`.
+
+## Developer note: canonical Python package
+
+AgentX backend source now lives in the lowercase `agentx/` package. Do not patch old duplicate folders such as `AgentX/`, `core/`, `cli/`, `tools/`, `jobs/`, or `install/` at the source root. Run `python scripts/check_package_tree.py` before packaging or pushing.

@@ -92,6 +92,21 @@ class MemoryStub:
     def retrieve(self, query: str, k: int = 8, tags_filter: list[str] | None = None) -> list[MemoryChunk]:
         return []
 
+    def add_project_memory(self, **kwargs):
+        raise RuntimeError("Memory is disabled.")
+
+    def ingest_project_raw(self, **kwargs):
+        raise RuntimeError("Memory is disabled.")
+
+    def retrieve_project_memory(self, *args, **kwargs):
+        return []
+
+    def project_context_stack(self, **kwargs):
+        return {"global": [], "module": [], "files": [], "task": []}
+
+    def list_project_memory(self, **kwargs):
+        return []
+
     def record(
         self,
         *,

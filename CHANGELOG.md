@@ -1,3 +1,10 @@
+## v0.2.6-draft-workspace
+
+- Added Draft Workspace for opening, explaining, and rewriting pasted or attached code/text.
+- Added Draft actions to the composer plus menu.
+- Added `/v1/drafts/generate` backend route using the configured chat provider.
+- Updated visible build marker to `v0.2.6-draft-workspace`.
+
 # Changelog
 
 ## 0.2.1 - 2026-04-29

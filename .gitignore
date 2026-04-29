@@ -133,3 +133,18 @@ AgentX-Log.md
 
 # Pytest temporary cache directories
 pytest-cache-files-*
+
+# AgentX local runtime state at repo root
+/memory/
+/logs/
+/cache/
+/tmp/
+/work/
+/run/
+/runtime/
+/audit/
+/cleanup-backups/
+
+# Local patch/install artifacts
+/AgentX_Phase*.zip
+/apply_phase*.sh
