@@ -61,6 +61,7 @@ import { AgentXDropdown, type AgentXDropdownOption } from "./components/AgentXDr
 import { theme } from "./theme";
 import { CodeCanvas } from "./components/CodeCanvas";
 import { GitHubUpdateTicker } from "./components/GitHubUpdateTicker";
+import { TaskReflectionModal } from "./components/TaskReflectionModal";
 import { TopStatusBar } from "./layout/TopStatusBar";
 import { ModeRail, type DeckModeId } from "./layout/ModeRail";
 import { ContextStackPanel } from "./layout/ContextStackPanel";
@@ -555,6 +556,7 @@ export function App() {
 
   const [draft, setDraft] = useState("");
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
+  const [taskReflectionOpen, setTaskReflectionOpen] = useState(false);
 
   useEffect(() => {
     if (!composerMenuOpen) return;
@@ -2976,6 +2978,15 @@ ${script.content}
                     onChange={(event) => void addComposerFiles(event.currentTarget.files, "image")}
                   />
                   <div className="agentx-composer-toolbar">
+                    <button
+                      type="button"
+                      className="agentx-reflect-task-button"
+                      disabled={!statusOk || !activeThread}
+                      onClick={() => setTaskReflectionOpen(true)}
+                      title="Review this task and promote durable project knowledge"
+                    >
+                      Reflect Task
+                    </button>
                     <div className="agentx-composer-plus-wrap">
                       <button
                         type="button"
@@ -3160,6 +3171,18 @@ ${script.content}
             document.body
           )
         : null}
+
+
+      <TaskReflectionModal
+        open={taskReflectionOpen}
+        statusOk={statusOk}
+        threadTitle={activeThread?.title || null}
+        projectName={activeProject?.name || null}
+        model={chatModel}
+        messages={(activeThread?.messages || []).map((message) => ({ role: message.role, content: message.content }))}
+        onClose={() => setTaskReflectionOpen(false)}
+        onSaved={setSystemMessage}
+      />
 
       {draftWorkspace.open ? (
         <div className="agentx-draft-workspace" role="dialog" aria-modal="true" aria-label="Draft Workspace">

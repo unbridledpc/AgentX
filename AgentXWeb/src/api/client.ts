@@ -1270,3 +1270,62 @@ export async function updateProjectMemoryStatus(entryId: string, payload: { stat
   });
   return handle(res);
 }
+
+export type ReflectionMessage = {
+  role: string;
+  content: string;
+};
+
+export type TaskReflectionDraft = {
+  title: string;
+  summary: string;
+  changed: string[];
+  affected_files: string[];
+  decisions: string[];
+  assumptions_corrected: string[];
+  durable_memory: string[];
+  discard_noise: string[];
+  checklist: string[];
+  confidence: number;
+};
+
+export type DraftTaskReflectionRequest = {
+  task_title?: string;
+  project_name?: string | null;
+  thread_title?: string | null;
+  messages: ReflectionMessage[];
+  changed_files?: string[];
+  git_status?: string | null;
+  model?: string | null;
+};
+
+export async function draftTaskReflection(payload: DraftTaskReflectionRequest): Promise<TaskReflectionDraft> {
+  const res = await fetch(`${config.apiBase}/v1/reflection/draft`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handleJson<TaskReflectionDraft>(res);
+}
+
+export async function promoteTaskReflection(payload: {
+  title: string;
+  summary: string;
+  scope?: "global" | "module" | "file" | "task";
+  kind?: string;
+  durability?: "low" | "medium" | "high";
+  tags?: string[];
+  affected_files?: string[];
+  decisions?: string[];
+  assumptions_corrected?: string[];
+  evidence?: string[];
+  confidence?: number;
+}): Promise<{ ok: boolean; entry_id: string; entry: unknown }> {
+  const res = await fetch(`${config.apiBase}/v1/reflection/promote`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handleJson<{ ok: boolean; entry_id: string; entry: unknown }>(res);
+}
+

@@ -26,6 +26,7 @@ from agentx_api.routes.fs import router as fs_router
 from agentx_api.routes.github import router as github_router
 from agentx_api.routes.ollama_updates import router as ollama_updates_router
 from agentx_api.routes.project_memory import router as project_memory_router
+from agentx_api.routes.task_reflection import router as task_reflection_router
 from agentx_api.routes.rag import router as rag_router
 from agentx_api.routes.agentx import router as agentx_router
 from agentx_api.routes.settings import router as settings_router
@@ -110,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(github_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(ollama_updates_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(project_memory_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
+    app.include_router(task_reflection_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     return app
 
 

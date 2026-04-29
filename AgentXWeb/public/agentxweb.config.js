@@ -7,3 +7,5 @@ window.__AGENTXWEB_CONFIG__ = {
     currentVersion: "v0.2.6-draft-workspace"
   }
 };
+
+window.AGENTX_VERSION = "v0.3.0-reflection-gate";
