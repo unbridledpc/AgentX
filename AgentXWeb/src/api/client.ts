@@ -1155,3 +1155,118 @@ export async function getOllamaModelUpdates(refresh = false): Promise<OllamaMode
   const res = await fetch(`${config.apiBase}/v1/ollama/model-updates${qs}`, { headers: authHeaders() });
   return handle(res);
 }
+
+export type ProjectMemoryEntry = {
+  entry_id: string;
+  title: string;
+  summary: string;
+  scope: string;
+  kind: string;
+  durability: string;
+  created_at: number;
+  updated_at: number;
+  module?: string | null;
+  file_path?: string | null;
+  task_id?: string | null;
+  source: string;
+  tags: string[];
+  affected_files: string[];
+  decisions: string[];
+  assumptions_corrected: string[];
+  evidence: string[];
+  status: string;
+  confidence: number;
+  meta: Record<string, unknown>;
+};
+
+export type ProjectMemoryHit = {
+  entry: ProjectMemoryEntry;
+  content: string;
+  score?: number | null;
+  snippet: string;
+};
+
+export type ProjectMemoryStats = {
+  ok: boolean;
+  enabled: boolean;
+  entry_count: number;
+  ledger_path?: string | null;
+  by_scope: Record<string, number>;
+  by_kind: Record<string, number>;
+  by_status: Record<string, number>;
+};
+
+export type ProjectMemoryListResponse = {
+  ok: boolean;
+  entries: ProjectMemoryEntry[];
+  stats: ProjectMemoryStats;
+};
+
+export type ProjectMemorySearchResponse = {
+  ok: boolean;
+  hits: ProjectMemoryHit[];
+};
+
+export type ProjectMemoryCreatePayload = {
+  title: string;
+  summary: string;
+  scope: string;
+  kind: string;
+  durability: string;
+  module?: string | null;
+  file_path?: string | null;
+  task_id?: string | null;
+  source?: string;
+  tags?: string[];
+  affected_files?: string[];
+  decisions?: string[];
+  assumptions_corrected?: string[];
+  evidence?: string[];
+  confidence?: number;
+  meta?: Record<string, unknown>;
+};
+
+export async function getProjectMemoryStats(): Promise<ProjectMemoryStats> {
+  const res = await fetch(`${config.apiBase}/v1/memory/project/stats`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function listProjectMemory(params: { scope?: string; status?: string; module?: string; limit?: number } = {}): Promise<ProjectMemoryListResponse> {
+  const search = new URLSearchParams();
+  if (params.scope) search.set("scope", params.scope);
+  if (params.status !== undefined) search.set("status", params.status);
+  if (params.module) search.set("module", params.module);
+  if (params.limit) search.set("limit", String(params.limit));
+  const qs = search.toString();
+  const res = await fetch(`${config.apiBase}/v1/memory/project${qs ? `?${qs}` : ""}`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function searchProjectMemory(params: { query: string; scope?: string; kind?: string; module?: string; limit?: number }): Promise<ProjectMemorySearchResponse> {
+  const search = new URLSearchParams();
+  search.set("query", params.query);
+  if (params.scope) search.set("scope", params.scope);
+  if (params.kind) search.set("kind", params.kind);
+  if (params.module) search.set("module", params.module);
+  if (params.limit) search.set("limit", String(params.limit));
+  const res = await fetch(`${config.apiBase}/v1/memory/project/search?${search.toString()}`, { headers: authHeaders() });
+  return handle(res);
+}
+
+export async function createProjectMemory(payload: ProjectMemoryCreatePayload): Promise<ProjectMemoryEntry> {
+  const res = await fetch(`${config.apiBase}/v1/memory/project`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handle(res);
+}
+
+export async function updateProjectMemoryStatus(entryId: string, payload: { status: "active" | "superseded" | "discarded"; reason?: string }): Promise<ProjectMemoryEntry> {
+  const res = await fetch(`${config.apiBase}/v1/memory/project/${encodeURIComponent(entryId)}/status`, {
+    method: "PATCH",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handle(res);
+}

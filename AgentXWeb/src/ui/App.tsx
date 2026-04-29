@@ -51,6 +51,8 @@ import { tokens } from "./tokens";
 import { SettingsPage } from "./pages/SettingsPage";
 import { CustomizationPage } from "./pages/CustomizationPage";
 import { KnowledgePage } from "./pages/KnowledgePage";
+import { MemoryPage } from "./pages/MemoryPage";
+import { ModelsPage } from "./pages/ModelsPage";
 import { clearAuth, loadAuth, logout, tryLogin, type AuthState } from "./auth";
 import { ChatMessage } from "./components/ChatMessage";
 import { BrandBadge } from "./components/BrandBadge";
@@ -470,7 +472,7 @@ function messageScriptTitle(thread: Thread | null, messageId: string, fallback =
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(() => loadAuth());
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
-  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts" | "knowledge">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts" | "knowledge" | "models">("chat");
   const [activeDeckMode, setActiveDeckMode] = useState<DeckModeId>("command");
   const [deckLayoutPrefs, setDeckLayoutPrefs] = useState(() => ({
     showModeRail: window.localStorage.getItem("agentx.deck.showModeRail") !== "false",
@@ -490,6 +492,8 @@ export function App() {
   const [modelsRefreshing, setModelsRefreshing] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [ollamaBaseUrl, setOllamaBaseUrl] = useState("http://127.0.0.1:11434");
+  const [ollamaEndpoints, setOllamaEndpoints] = useState<Record<string, { base_url?: string; reachable?: boolean; error?: string | null; error_type?: string | null; models?: string[]; gpu_pin?: string | null }>>({});
+  const [modelsLastRefresh, setModelsLastRefresh] = useState<number | null>(null);
   const [providerEndpointStatus, setProviderEndpointStatus] = useState<string | null>(null);
   const [providerModelStatus, setProviderModelStatus] = useState<string | null>(null);
   const [lastProviderError, setLastProviderError] = useState<ProviderErrorDetail | null>(null);
@@ -551,6 +555,40 @@ export function App() {
 
   const [draft, setDraft] = useState("");
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!composerMenuOpen) return;
+
+    const closeComposerMenu = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+
+      if (
+        target?.closest(".agentx-composer-menu") ||
+        target?.closest(".agentx-composer-plus") ||
+        target?.closest(".agentx-composer-plus-wrap")
+      ) {
+        return;
+      }
+
+      setComposerMenuOpen(false);
+    };
+
+    const closeComposerMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setComposerMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", closeComposerMenu, true);
+    document.addEventListener("keydown", closeComposerMenuOnEscape, true);
+
+    return () => {
+      document.removeEventListener("mousedown", closeComposerMenu, true);
+      document.removeEventListener("keydown", closeComposerMenuOnEscape, true);
+    };
+  }, [composerMenuOpen]);
   const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
   const [composerRagMode, setComposerRagMode] = useState<ComposerRagMode>("auto");
   const [draftWorkspace, setDraftWorkspace] = useState<DraftWorkspaceState>(() => emptyDraftWorkspace());
@@ -795,6 +833,8 @@ export function App() {
           setModelsError(res.models_error ?? null);
         }
         setOllamaBaseUrl(res.ollama_base_url ?? "http://127.0.0.1:11434");
+        setOllamaEndpoints(res.ollama_endpoints ?? {});
+        setModelsLastRefresh(res.models_last_refresh ?? null);
         setProviderEndpointStatus(res.provider_endpoint_status ?? null);
         setProviderModelStatus(res.provider_model_status ?? null);
         setLastProviderError(
@@ -1324,6 +1364,8 @@ ${script.content}
     try {
       const res = await getStatusRefresh();
       setAvailableModels(res.available_chat_models ?? {});
+      setOllamaEndpoints(res.ollama_endpoints ?? {});
+      setModelsLastRefresh(res.models_last_refresh ?? null);
       setModelsRefreshing(Boolean(res.models_refreshing));
       setModelsError(res.models_error ?? null);
       setOllamaBaseUrl(res.ollama_base_url ?? "http://127.0.0.1:11434");
@@ -2302,6 +2344,10 @@ ${script.content}
       setActiveView("scripts");
       return;
     }
+    if (id === "models") {
+      setActiveView("models");
+      return;
+    }
     setActiveView("settings");
   };
 
@@ -2759,6 +2805,8 @@ ${script.content}
                   chat_model: chatModel,
                   available_chat_models: availableModels,
                   ollama_base_url: ollamaBaseUrl,
+                  ollama_endpoints: ollamaEndpoints,
+                  models_last_refresh: modelsLastRefresh,
                   models_error: modelsError,
                   models_refreshing: modelsRefreshing,
                 }}
@@ -2776,7 +2824,29 @@ ${script.content}
               />
             </div>
           ) : activeView === "knowledge" ? (
-            <KnowledgePage onSystemMessage={setSystemMessage} />
+            <MemoryPage onSystemMessage={setSystemMessage} />
+          ) : activeView === "models" ? (
+            <ModelsPage
+              statusOk={statusOk}
+              status={{
+                chat_provider: chatProvider,
+                chat_model: chatModel,
+                available_chat_models: availableModels,
+                ollama_base_url: ollamaBaseUrl,
+                ollama_endpoints: ollamaEndpoints,
+                models_error: modelsError,
+                models_refreshing: modelsRefreshing,
+                models_last_refresh: modelsLastRefresh,
+              }}
+              settings={appSettings}
+              onUseModel={(provider, model) => {
+                setChatProvider(provider);
+                setChatModel(model);
+                selectionPersistRef.current = persistChatSelection(provider, model);
+              }}
+              onRefreshModels={() => void refreshModels()}
+              onSystemMessage={setSystemMessage}
+            />
           ) : activeView === "scripts" ? (
             renderScriptsView()
           ) : (
@@ -2918,15 +2988,15 @@ ${script.content}
                       </button>
                       {composerMenuOpen ? (
                         <div className="agentx-composer-menu">
-                          <button type="button" onClick={() => fileInputRef.current?.click()}>Attach file</button>
-                          <button type="button" onClick={() => imageInputRef.current?.click()}>Attach picture</button>
-                          <button type="button" onClick={insertFileSearchPrompt}>Search for a file</button>
-                          <button type="button" onClick={() => void openDraftWorkspace("open")}>Open as Draft</button>
-                          <button type="button" onClick={() => void openDraftWorkspace("explain")}>Explain as Draft</button>
-                          <button type="button" onClick={() => void openDraftWorkspace("rewrite")}>Rewrite as Draft</button>
-                          <button type="button" onClick={() => void openDraftWorkspace("explain_and_rewrite")}>Explain + Rewrite Draft</button>
-                          <button type="button" onClick={() => setComposerRagMode((mode) => mode === "strict" ? "auto" : "strict")}>RAG: {composerRagMode === "strict" ? "Strict" : "Auto"}</button>
-                          <button type="button" onClick={() => setComposerRagMode((mode) => mode === "off" ? "auto" : "off")}>Local RAG: {composerRagMode === "off" ? "Off" : "On"}</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); fileInputRef.current?.click(); }}>Attach file</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); imageInputRef.current?.click(); }}>Attach picture</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); insertFileSearchPrompt(); }}>Search for a file</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); void openDraftWorkspace("open"); }}>Open as Draft</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); void openDraftWorkspace("explain"); }}>Explain as Draft</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); void openDraftWorkspace("rewrite"); }}>Rewrite as Draft</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); void openDraftWorkspace("explain_and_rewrite"); }}>Explain + Rewrite Draft</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); setComposerRagMode((mode) => mode === "strict" ? "auto" : "strict"); }}>RAG: {composerRagMode === "strict" ? "Strict" : "Auto"}</button>
+                          <button type="button" onClick={() => { setComposerMenuOpen(false); setComposerRagMode((mode) => mode === "off" ? "auto" : "off"); }}>Local RAG: {composerRagMode === "off" ? "Off" : "On"}</button>
                         </div>
                       ) : null}
                     </div>

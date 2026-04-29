@@ -3410,3 +3410,190 @@ button.agentx-sidebar-action:disabled * {
 .agentx-project-context-menu button + button {
   margin-top: 8px;
 }
+
+
+.agentx-memory-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agentx-memory-tabs button {
+  border-radius: 999px;
+  border: 1px solid rgba(100, 180, 255, 0.20);
+  background: rgba(15, 23, 42, 0.78);
+  color: rgba(226, 238, 255, 0.82);
+  padding: 7px 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.agentx-memory-tabs button:hover,
+.agentx-memory-tab--active {
+  border-color: rgba(34, 211, 238, 0.46) !important;
+  background: rgba(8, 145, 178, 0.20) !important;
+  color: #f8fbff !important;
+}
+
+.agentx-memory-card {
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  background: linear-gradient(135deg, rgba(2, 6, 23, 0.82), rgba(15, 23, 42, 0.72));
+  border-radius: 22px;
+  padding: 16px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+}
+
+.agentx-memory-card__title {
+  color: rgba(248, 251, 255, 0.98);
+  font-weight: 850;
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.agentx-memory-card__summary {
+  margin-top: 12px;
+  color: rgba(218, 230, 245, 0.86);
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 0.9rem;
+}
+
+.agentx-memory-card__meta {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: rgba(148, 163, 184, 0.88);
+  font-size: 0.74rem;
+}
+
+.agentx-memory-card__tags,
+.agentx-memory-card__section {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: rgba(188, 204, 226, 0.84);
+  font-size: 0.78rem;
+}
+
+.agentx-memory-card__tags span {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(30, 41, 59, 0.66);
+  padding: 3px 8px;
+}
+
+.agentx-memory-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.86);
+  color: rgba(226, 232, 240, 0.9);
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.agentx-memory-chip--ok {
+  border-color: rgba(34, 197, 94, 0.36);
+  background: rgba(34, 197, 94, 0.10);
+  color: rgba(187, 247, 208, 0.96);
+}
+
+.agentx-memory-chip--warn {
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(245, 158, 11, 0.11);
+  color: rgba(254, 215, 170, 0.96);
+}
+
+.agentx-memory-chip--bad {
+  border-color: rgba(248, 113, 113, 0.40);
+  background: rgba(248, 113, 113, 0.10);
+  color: rgba(254, 202, 202, 0.96);
+}
+
+
+.agentx-model-deck-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px; border: 1px solid rgba(74,222,255,.16); border-radius: 24px; background: linear-gradient(135deg, rgba(6,20,42,.92), rgba(3,8,20,.82)); box-shadow: 0 20px 50px rgba(0,0,0,.22); }
+.agentx-model-deck-hero h2 { margin: 6px 0 4px; font-size: 1.35rem; font-weight: 850; color: rgba(245,250,255,.98); }
+.agentx-model-deck-hero p { margin: 0; max-width: 720px; color: rgba(171,190,215,.84); font-size: .9rem; }
+.agentx-model-deck-hero__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.agentx-model-deck-pill { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(56,189,248,.28); background: rgba(14,45,76,.62); color: rgba(220,245,255,.96); font-size: .78rem; font-weight: 750; }
+.agentx-model-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.agentx-model-card { display: grid; gap: 12px; padding: 14px; border-radius: 20px; border: 1px solid rgba(100,116,139,.28); background: rgba(4,11,25,.78); }
+.agentx-model-card--selected { border-color: rgba(52,211,153,.48); box-shadow: 0 0 0 1px rgba(52,211,153,.14), 0 0 28px rgba(52,211,153,.10); }
+.agentx-model-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.agentx-model-card h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(248,250,252,.98); font-size: 1rem; font-weight: 850; }
+.agentx-model-card p { margin: 4px 0 0; color: rgba(148,163,184,.86); font-size: .78rem; }
+.agentx-model-card__meta { display: grid; gap: 6px; color: rgba(190,205,225,.88); font-size: .78rem; }
+.agentx-model-card__meta strong { color: rgba(245,250,255,.96); }
+.agentx-model-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.agentx-model-status { flex: 0 0 auto; border-radius: 999px; padding: 4px 8px; font-size: .68rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+.agentx-model-status--ok { border: 1px solid rgba(34,197,94,.34); background: rgba(34,197,94,.12); color: rgba(187,247,208,.96); }
+.agentx-model-status--bad { border: 1px solid rgba(248,113,113,.34); background: rgba(248,113,113,.12); color: rgba(254,202,202,.96); }
+
+
+/* Command Deck Mode Rail - repair source of truth */
+.agentx-mode-rail {
+  position: relative !important;
+  z-index: 50 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+  width: 76px !important;
+  min-width: 76px !important;
+  max-width: 76px !important;
+  overflow: visible !important;
+  pointer-events: auto !important;
+}
+
+.agentx-mode-rail-button {
+  position: relative !important;
+  z-index: 51 !important;
+  display: flex !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 58px !important;
+  height: 58px !important;
+  max-height: 58px !important;
+  margin: 0 !important;
+  padding: 8px 6px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-direction: column !important;
+  gap: 5px !important;
+  overflow: hidden !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  color: rgba(236, 246, 255, 0.94) !important;
+  -webkit-text-fill-color: rgba(236, 246, 255, 0.94) !important;
+}
+
+.agentx-mode-rail-button > *,
+.agentx-mode-rail-button * {
+  pointer-events: none !important;
+}
+
+.agentx-mode-rail-button--active,
+.agentx-mode-rail-button:hover:not(:disabled) {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.agentx-sidebar-action,
+.agentx-sidebar-action *,
+button.agentx-sidebar-action,
+button.agentx-sidebar-action *,
+.agentx-project-context-menu button,
+.agentx-project-context-menu button *,
+.agentx-composer-menu button,
+.agentx-composer-menu button * {
+  color: #f8fbff !important;
+  -webkit-text-fill-color: #f8fbff !important;
+  opacity: 1 !important;
+}

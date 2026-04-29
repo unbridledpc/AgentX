@@ -31,6 +31,8 @@ export function SettingsPage(props: Props) {
   const provider = rawProvider === "openai" || rawProvider === "ollama" ? rawProvider : "ollama";
   const model = (settings?.chatModel ?? props.status.chat_model ?? "").toString();
   const ollamaBaseUrl = (settings?.ollamaBaseUrl ?? props.status.ollama_base_url ?? "http://127.0.0.1:11434").toString();
+  const ollamaEndpoints = props.status.ollama_endpoints ?? {};
+  const modelsLastRefresh = props.status.models_last_refresh ?? null;
   const ollamaMultiEndpointEnabled = Boolean(settings?.ollamaMultiEndpointEnabled ?? DEFAULT_AGENTX_SETTINGS.ollamaMultiEndpointEnabled);
   const ollamaFastBaseUrl = (settings?.ollamaFastBaseUrl ?? DEFAULT_AGENTX_SETTINGS.ollamaFastBaseUrl).toString();
   const ollamaHeavyBaseUrl = (settings?.ollamaHeavyBaseUrl ?? DEFAULT_AGENTX_SETTINGS.ollamaHeavyBaseUrl).toString();
@@ -80,21 +82,6 @@ export function SettingsPage(props: Props) {
     }
     return [{ value: "__none__", label: "Select a provider first", disabled: true }];
   }, [modelOptions.ollama, modelOptions.openai, provider]);
-
-  useEffect(() => {
-    const incoming = { ...DEFAULT_AGENTX_SETTINGS, ...(props.settings ?? {}) };
-    setSettings({ ...incoming, modelBehavior: normalizeModelBehaviorSettings(incoming.modelBehavior) });
-  }, [props.settings]);
-
-  const updateModelBehavior = (patch: Partial<typeof DEFAULT_MODEL_BEHAVIOR_SETTINGS>) => {
-    setSettings((prev) => ({
-      ...prev,
-      modelBehavior: {
-        ...normalizeModelBehaviorSettings(prev.modelBehavior),
-        ...patch,
-      },
-    }));
-  };
   const refreshGithubStatus = async () => {
     if (!props.statusOk) return;
     setGithubBusy(true);
