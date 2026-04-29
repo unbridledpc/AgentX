@@ -468,6 +468,11 @@ export function App() {
   const [auth, setAuth] = useState<AuthState | null>(() => loadAuth());
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
   const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts" | "knowledge">("chat");
+  const [activeDeckMode, setActiveDeckMode] = useState<DeckModeId>("command");
+  const [deckLayoutPrefs, setDeckLayoutPrefs] = useState(() => ({
+    showModeRail: window.localStorage.getItem("agentx.deck.showModeRail") !== "false",
+    showContextStack: window.localStorage.getItem("agentx.deck.showContextStack") !== "false",
+  }));
   const [loginUser, setLoginUser] = useState("agentx");
   const [loginPass, setLoginPass] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
@@ -2177,8 +2182,20 @@ ${script.content}
     );
   };
 
+  useEffect(() => {
+    const onDeckLayoutChanged = () => {
+      setDeckLayoutPrefs({
+        showModeRail: window.localStorage.getItem("agentx.deck.showModeRail") !== "false",
+        showContextStack: window.localStorage.getItem("agentx.deck.showContextStack") !== "false",
+      });
+    };
+    window.addEventListener("agentx-deck-layout-changed", onDeckLayoutChanged);
+    return () => window.removeEventListener("agentx-deck-layout-changed", onDeckLayoutChanged);
+  }, []);
+
   const showCommandDeck = !isMobile;
-  const showContextStack = !isMobile;
+  const showModeRail = !isMobile && deckLayoutPrefs.showModeRail;
+  const showContextStack = !isMobile && deckLayoutPrefs.showContextStack;
 
   const commandDeckStatusItems = [
     { label: "API", value: statusOk ? "online" : "offline", state: statusOk ? "ok" as const : "bad" as const },
@@ -2192,16 +2209,17 @@ ${script.content}
   ];
 
   const commandDeckModes = [
-    { id: "command" as const, label: "Command", icon: "⌁", active: activeView === "chat", title: "Chat and command surface" },
-    { id: "drafts" as const, label: "Drafts", icon: "✎", active: draftWorkspace.open, title: "Open Draft Workspace" },
-    { id: "memory" as const, label: "Memory", icon: "◈", active: activeView === "knowledge", title: "Knowledge and project memory" },
-    { id: "scripts" as const, label: "Scripts", icon: "◇", active: activeView === "scripts", title: "Saved code artifacts" },
-    { id: "models" as const, label: "Models", icon: "◎", active: activeView === "settings", title: "Model and Ollama settings" },
-    { id: "github" as const, label: "GitHub", icon: "⎇", active: activeView === "settings", title: "GitHub status and update controls" },
-    { id: "settings" as const, label: "Settings", icon: "⋯", active: activeView === "settings" || activeView === "customization", title: "Settings" },
+    { id: "command" as const, label: "Command", icon: "⌁", title: "Chat and command surface" },
+    { id: "drafts" as const, label: "Drafts", icon: "✎", title: "Open Draft Workspace" },
+    { id: "memory" as const, label: "Memory", icon: "◈", title: "Knowledge and project memory" },
+    { id: "scripts" as const, label: "Scripts", icon: "◇", title: "Saved code artifacts" },
+    { id: "models" as const, label: "Models", icon: "◎", title: "Model and Ollama settings" },
+    { id: "github" as const, label: "GitHub", icon: "⎇", title: "GitHub status and update controls" },
+    { id: "settings" as const, label: "Settings", icon: "⋯", title: "Settings" },
   ];
 
   const selectDeckMode = (id: DeckModeId) => {
+    setActiveDeckMode(id);
     if (id === "command") {
       setActiveView("chat");
       return;
@@ -2537,16 +2555,24 @@ ${script.content}
           tokens.gap,
           isMobile
             ? "grid-cols-1"
-            : layoutSettings.showSidebar && showContextStack
+            : layoutSettings.showSidebar && showModeRail && showContextStack
               ? "grid-cols-[76px_300px_minmax(0,1fr)_320px]"
-              : layoutSettings.showSidebar
+              : layoutSettings.showSidebar && showModeRail
                 ? "grid-cols-[76px_300px_minmax(0,1fr)]"
-                : showContextStack
+                : showModeRail && showContextStack
                   ? "grid-cols-[76px_minmax(0,1fr)_320px]"
-                  : "grid-cols-[76px_minmax(0,1fr)]",
+                  : showModeRail
+                    ? "grid-cols-[76px_minmax(0,1fr)]"
+                    : layoutSettings.showSidebar && showContextStack
+                      ? "grid-cols-[300px_minmax(0,1fr)_320px]"
+                      : layoutSettings.showSidebar
+                        ? "grid-cols-[300px_minmax(0,1fr)]"
+                        : showContextStack
+                          ? "grid-cols-[minmax(0,1fr)_320px]"
+                          : "grid-cols-1",
         ].join(" ")}
       >
-        {!isMobile ? <ModeRail modes={commandDeckModes} onSelect={selectDeckMode} /> : null}
+        {showModeRail ? <ModeRail modes={commandDeckModes} activeId={activeDeckMode} onSelect={selectDeckMode} /> : null}
         {!isMobile && layoutSettings.showSidebar ? renderSidebar("desktop") : null}
 
         <Panel className={theme.shell.mainPanel}>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { config } from "../../config";
 
 type GitHubStatus = {
   ok?: boolean;
@@ -53,8 +54,7 @@ export function GitHubUpdateTicker() {
 
     async function load() {
       try {
-        const apiBase = `${window.location.protocol}//${window.location.hostname}:8000`;
-        const res = await fetch(`${apiBase}/v1/github/status`, { cache: "no-store" });
+        const res = await fetch(`${config.apiBase}/v1/github/status`, { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = (await res.json()) as GitHubStatus;
         if (!cancelled) setState(json);
