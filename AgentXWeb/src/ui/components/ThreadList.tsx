@@ -126,7 +126,8 @@ export function ThreadList(props: Props) {
                   ) : (
                     <span
                       className="flex-1 truncate"
-                      onClick={(event) => {
+                      title="Click to open. Double-click or right-click to rename."
+                      onDoubleClick={(event) => {
                         event.stopPropagation();
                         startEdit(t);
                       }}

@@ -2199,7 +2199,7 @@ ${script.content}
           >
             <div className={tokens.smallLabel}>Projects</div>
             <button
-              className={tokens.button}
+              className={[tokens.button, "agentx-sidebar-action"].join(" ")}
               onClick={() => {
                 createProject();
                 onAfterNavAction();
@@ -2264,7 +2264,7 @@ ${script.content}
         <Panel className="rounded-[1.4rem] bg-slate-950/54 p-3 text-sm">
           <div className="flex items-center justify-between gap-3">
             <div className={tokens.smallLabel}>Chats</div>
-            <button className={tokens.button} onClick={() => void newChat()} disabled={!statusOk || loadingThreads}>
+            <button className={[tokens.button, "agentx-sidebar-action"].join(" ")} onClick={() => void newChat()} disabled={!statusOk || loadingThreads}>
               New Chat
             </button>
           </div>

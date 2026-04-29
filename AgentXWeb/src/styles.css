@@ -2922,3 +2922,166 @@ body {
   font-size: 0.82rem;
   font-weight: 650;
 }
+
+/* Sidebar readability pass */
+.sidebar button,
+.sidebar .button,
+.sidebar-item,
+.thread-item,
+.chat-item,
+.project-item,
+.menu-item {
+  color: rgba(245, 250, 255, 0.94) !important;
+}
+
+.sidebar button:disabled,
+.sidebar .button:disabled,
+.sidebar .disabled,
+button:disabled {
+  color: rgba(190, 205, 225, 0.58) !important;
+  opacity: 0.78 !important;
+}
+
+.sidebar .muted,
+.sidebar-muted,
+.sidebar small,
+.sidebar .timestamp,
+.thread-time,
+.chat-time {
+  color: rgba(170, 188, 215, 0.72) !important;
+}
+
+.sidebar input,
+.sidebar input::placeholder {
+  color: rgba(238, 246, 255, 0.92) !important;
+}
+
+.sidebar input::placeholder {
+  color: rgba(165, 184, 210, 0.72) !important;
+}
+
+.thread-item,
+.chat-item,
+.project-item,
+.menu-item {
+  cursor: pointer;
+}
+
+.thread-item:hover,
+.chat-item:hover,
+.project-item:hover,
+.menu-item:hover {
+  color: rgba(255, 255, 255, 0.98) !important;
+  border-color: rgba(90, 180, 255, 0.42) !important;
+  background: rgba(70, 145, 255, 0.13) !important;
+}
+
+.thread-item.active,
+.chat-item.active,
+.project-item.active,
+.menu-item.active {
+  color: rgba(255, 255, 255, 1) !important;
+  border-color: rgba(255, 210, 90, 0.45) !important;
+  background: rgba(255, 210, 90, 0.10) !important;
+}
+
+/* Force readable sidebar action buttons */
+.sidebar button,
+.sidebar button *,
+.agentx-sidebar button,
+.agentx-sidebar button *,
+button[class*="button"],
+button[class*="button"] * {
+  color: rgba(245, 250, 255, 0.96) !important;
+}
+
+.sidebar button:disabled,
+.sidebar button:disabled *,
+.agentx-sidebar button:disabled,
+.agentx-sidebar button:disabled *,
+button:disabled,
+button:disabled * {
+  color: rgba(210, 222, 240, 0.72) !important;
+  -webkit-text-fill-color: rgba(210, 222, 240, 0.72) !important;
+}
+
+.sidebar .new,
+.sidebar .new *,
+.agentx-sidebar .new,
+.agentx-sidebar .new *,
+button[disabled] {
+  color: rgba(210, 222, 240, 0.72) !important;
+  -webkit-text-fill-color: rgba(210, 222, 240, 0.72) !important;
+}
+
+.sidebar button:not(:disabled):hover,
+.agentx-sidebar button:not(:disabled):hover {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* AgentX sidebar action button readability */
+aside button,
+aside button *,
+nav button,
+nav button *,
+button.agentx-sidebar-action,
+button.agentx-sidebar-action * {
+  color: rgba(245, 250, 255, 0.96) !important;
+  -webkit-text-fill-color: rgba(245, 250, 255, 0.96) !important;
+}
+
+aside button:disabled,
+aside button:disabled *,
+nav button:disabled,
+nav button:disabled * {
+  color: rgba(210, 222, 240, 0.72) !important;
+  -webkit-text-fill-color: rgba(210, 222, 240, 0.72) !important;
+  opacity: 0.85 !important;
+}
+
+aside button:not(:disabled):hover,
+aside button:not(:disabled):hover *,
+nav button:not(:disabled):hover,
+nav button:not(:disabled):hover * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Explicit sidebar action buttons: New / New Chat */
+.agentx-sidebar-action,
+.agentx-sidebar-action *,
+button.agentx-sidebar-action,
+button.agentx-sidebar-action * {
+  color: #f8fbff !important;
+  -webkit-text-fill-color: #f8fbff !important;
+  opacity: 1 !important;
+}
+
+.agentx-sidebar-action:disabled,
+.agentx-sidebar-action:disabled *,
+button.agentx-sidebar-action:disabled,
+button.agentx-sidebar-action:disabled * {
+  color: rgba(225, 235, 250, 0.82) !important;
+  -webkit-text-fill-color: rgba(225, 235, 250, 0.82) !important;
+  opacity: 0.9 !important;
+}
+
+/* Explicit sidebar action buttons: New / New Chat */
+.agentx-sidebar-action,
+.agentx-sidebar-action *,
+button.agentx-sidebar-action,
+button.agentx-sidebar-action * {
+  color: #f8fbff !important;
+  -webkit-text-fill-color: #f8fbff !important;
+  opacity: 1 !important;
+}
+
+.agentx-sidebar-action:disabled,
+.agentx-sidebar-action:disabled *,
+button.agentx-sidebar-action:disabled,
+button.agentx-sidebar-action:disabled * {
+  color: rgba(225, 235, 250, 0.82) !important;
+  -webkit-text-fill-color: rgba(225, 235, 250, 0.82) !important;
+  opacity: 0.9 !important;
+}
