@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 - 2026-04-29
+
+- Added a fixed bottom-right AgentX version badge so deployed UI builds are easy to verify.
+- Updated bundled web config to show `v0.2.1-rag-ui`.
+
+## Unreleased
+
+- Added local RAG usage metadata to chat responses and persisted assistant messages.
+- Added a visible RAG badge and expandable local source list on assistant messages that used local knowledge.
+- Added a composer + menu for file attachments, picture attachments, file-search prompt insertion, and per-message RAG mode hints.
+
 ## Unreleased
 
 ### Added

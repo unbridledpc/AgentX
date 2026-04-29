@@ -113,6 +113,9 @@ class ChatResponse(BaseModel):
     retrieved: list[RetrievedChunk] | None = None
     audit_tail: list[dict] | None = None
     sources: list[dict[str, str]] | None = None
+    rag_used: bool = False
+    rag_hit_count: int = 0
+    rag_sources: list[dict[str, str]] | None = None
     verification_level: str | None = None
     verification: dict | None = None
     web: dict | None = None
@@ -235,23 +238,42 @@ def _rag_store() -> RagStore:
     return RagStore(config.rag_db_path)
 
 
-def _build_retrieval_context(query: str) -> str:
+def _rag_source_refs(hits: list) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for h in hits or []:
+        title = str(getattr(h, "title", "") or "Local knowledge").strip() or "Local knowledge"
+        source = str(getattr(h, "source", "") or "local-rag").strip() or "local-rag"
+        key = (title, source)
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append({"title": title, "url": source, "trust": "local-rag"})
+    return refs
+
+
+def _retrieve_rag(query: str) -> tuple[str, list[dict[str, str]], int]:
+    if "Do not use local RAG knowledge" in (query or ""):
+        return "", [], 0
     if not config.rag_enabled:
-        return ""
+        return "", [], 0
     try:
         hits = _rag_store().query(query, k=config.rag_top_k)
     except Exception:
-        return ""
+        return "", [], 0
     if not hits:
-        return ""
+        return "", [], 0
     lines: list[str] = []
     for i, h in enumerate(hits, start=1):
         header = f"[{i}] {h.title} ({h.source})"
         lines.append(header)
         lines.append(h.content)
         lines.append("")
-    return "\n".join(lines).strip()
+    return "\n".join(lines).strip(), _rag_source_refs(hits), len(hits)
 
+
+def _build_retrieval_context(query: str) -> str:
+    return _retrieve_rag(query)[0]
 
 def _tool_rag_upsert(args: dict) -> dict:
     if not config.rag_enabled:
@@ -1304,7 +1326,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                 if thread_id and user_id:
                     ensure_thread_owner(thread_id, owner_id=user_id)
                 short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
-                retrieved = _build_retrieval_context(request.message)
+                retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
 
                 if config.web_enabled:
                     urls = re.findall(r"https?://\S+", request.message or "")
@@ -1464,7 +1486,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     user_message=request.message,
                     content=content,
                 )
-                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time(), "response_metrics": metrics.model_dump(), "quality_gate": quality_gate_report})
+                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time(), "response_metrics": metrics.model_dump(), "quality_gate": quality_gate_report, "rag_used": rag_hit_count > 0, "rag_hit_count": rag_hit_count, "rag_sources": rag_sources})
                 return
 
             if provider == "ollama" and not config.ollama_tools_enabled:
@@ -1474,7 +1496,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                 if thread_id and user_id:
                     ensure_thread_owner(thread_id, owner_id=user_id)
                 short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
-                retrieved = _build_retrieval_context(request.message)
+                retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
 
                 if config.web_enabled:
                     urls = re.findall(r"https?://\\S+", request.message or "")
@@ -1520,7 +1542,7 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     user_message=request.message,
                     content=content,
                 )
-                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time(), "response_metrics": metrics.model_dump()})
+                yield _stream_event("done", {"role": "assistant", "content": content, "ts": time.time(), "response_metrics": metrics.model_dump(), "rag_used": rag_hit_count > 0, "rag_hit_count": rag_hit_count, "rag_sources": rag_sources})
                 return
 
             # Compatibility fallback for OpenAI, stub, and Ollama tool mode. This is not token-streamed,
@@ -1536,6 +1558,9 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     "retrieved": [chunk.model_dump() for chunk in (response.retrieved or [])],
                     "audit_tail": response.audit_tail or [],
                     "sources": response.sources or [],
+                    "rag_used": response.rag_used,
+                    "rag_hit_count": response.rag_hit_count,
+                    "rag_sources": response.rag_sources or [],
                     "verification_level": response.verification_level,
                     "verification": response.verification,
                     "web": response.web,
@@ -1648,6 +1673,9 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
             retrieved=retrieved,
             audit_tail=h.ctx.audit.tail(limit=50),
             sources=[{"title": str(s.get("title") or ""), "url": str(s.get("url") or ""), "trust": (str(s.get("trust") or "").strip() or "unknown")} for s in (res.sources or ())],
+            rag_used=bool(retrieved or (res.sources or ())),
+            rag_hit_count=len(retrieved),
+            rag_sources=[{"title": str(s.get("title") or ""), "url": str(s.get("url") or ""), "trust": (str(s.get("trust") or "").strip() or "local-rag")} for s in (res.sources or ())],
             verification_level=(getattr(res, "verification_level", None).value if getattr(res, "verification_level", None) is not None else None),
             verification=(getattr(res, "verification", None) if getattr(res, "verification", None) is not None else None),
             web=_extract_web_meta(getattr(res, "tool_results", None)),
@@ -1664,7 +1692,7 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
         if thread_id and user_id:
             ensure_thread_owner(thread_id, owner_id=user_id)
         short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
-        retrieved = _build_retrieval_context(request.message)
+        retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
 
         messages: list[dict] = [
             {
@@ -1696,6 +1724,9 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
             content=content,
             ts=time.time(),
             response_metrics=_response_metrics(started_at=request_started_at, provider=provider, model=model, user_message=request.message, content=content),
+            rag_used=rag_hit_count > 0,
+            rag_hit_count=rag_hit_count,
+            rag_sources=rag_sources,
         )
 
     if provider == "ollama":
@@ -1703,7 +1734,7 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
         if thread_id and user_id:
             ensure_thread_owner(thread_id, owner_id=user_id)
         short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
-        retrieved = _build_retrieval_context(request.message)
+        retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
 
         if config.ollama_tools_enabled:
             content = _ollama_chat_with_tools(
@@ -1734,6 +1765,9 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
             content=content,
             ts=time.time(),
             response_metrics=_response_metrics(started_at=request_started_at, provider=provider, model=model, user_message=request.message, content=content),
+            rag_used=rag_hit_count > 0,
+            rag_hit_count=rag_hit_count,
+            rag_sources=rag_sources,
         )
 
     reply = finalize_response_text(f"AgentX says: {request.message}", response_mode=response_mode)

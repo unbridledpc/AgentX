@@ -39,6 +39,9 @@ class MessagePayload(BaseModel):
     content: str
     response_metrics: dict | None = None
     quality_gate: dict | None = None
+    rag_used: bool | None = None
+    rag_hit_count: int | None = None
+    rag_sources: list[dict] | None = None
 
 
 class TitlePayload(BaseModel):
@@ -61,6 +64,9 @@ class Message(BaseModel):
     ts: float
     response_metrics: dict | None = None
     quality_gate: dict | None = None
+    rag_used: bool | None = None
+    rag_hit_count: int | None = None
+    rag_sources: list[dict] | None = None
 
 
 class Thread(BaseModel):
@@ -240,6 +246,9 @@ def append_message(thread_id: str, payload: MessagePayload, http: Request) -> Th
         ts=now,
         response_metrics=(payload.response_metrics if payload.role == "assistant" else None),
         quality_gate=(payload.quality_gate if payload.role == "assistant" else None),
+        rag_used=(bool(payload.rag_used) if payload.role == "assistant" else None),
+        rag_hit_count=(int(payload.rag_hit_count or 0) if payload.role == "assistant" else None),
+        rag_sources=(payload.rag_sources if payload.role == "assistant" else None),
     )
     thread.messages.append(message)
     thread.updated_at = now

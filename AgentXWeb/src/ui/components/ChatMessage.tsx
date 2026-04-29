@@ -168,6 +168,8 @@ export function ChatMessage({
   const authorLabel = roleLabel(message.role, assistantLabel, userLabel);
   const metricsLabel = responseMetricsLabel(message);
   const qualityGate = showQualityGateReport && message.role === "assistant" ? message.quality_gate ?? null : null;
+  const ragSources = Array.isArray(message.rag_sources) ? message.rag_sources : [];
+  const ragUsed = message.role === "assistant" && Boolean(message.rag_used || ragSources.length || (message.rag_hit_count ?? 0) > 0);
 
   return (
     <article className={[rowClass, startsGroup ? "agentx-message-row--start" : "agentx-message-row--continued", endsGroup ? "agentx-message-row--end" : ""].join(" ")}>
@@ -234,15 +236,24 @@ export function ChatMessage({
         )}
 
         <MessageBubble role={message.role} compactTop={!startsGroup} compactBottom={!endsGroup}>
-          {isLastAssistant && verification ? (
+          {ragUsed || (isLastAssistant && verification) ? (
             <div className="agentx-message-bubble__badges">
-              <span className="agentx-pill rounded-full px-2.5 py-1 text-[11px]">
-                {verification.verdict} ({Math.round((verification.confidence ?? 0) * 100)}%)
-              </span>
-              {verification.contradictions?.length ? (
-                <span className="agentx-message-badge agentx-message-badge--warn">
-                  Contradictions: {verification.contradictions.length}
+              {ragUsed ? (
+                <span className="agentx-rag-badge" title="This reply used local RAG knowledge">
+                  RAG{message.rag_hit_count ? ` · ${message.rag_hit_count} chunk${message.rag_hit_count === 1 ? "" : "s"}` : ""}
                 </span>
+              ) : null}
+              {verification ? (
+                <>
+                  <span className="agentx-pill rounded-full px-2.5 py-1 text-[11px]">
+                    {verification.verdict} ({Math.round((verification.confidence ?? 0) * 100)}%)
+                  </span>
+                  {verification.contradictions?.length ? (
+                    <span className="agentx-message-badge agentx-message-badge--warn">
+                      Contradictions: {verification.contradictions.length}
+                    </span>
+                  ) : null}
+                </>
               ) : null}
             </div>
           ) : null}
@@ -255,6 +266,20 @@ export function ChatMessage({
                   <div key={`${index}-${item}`}>{item}</div>
                 ))}
               </div>
+            </details>
+          ) : null}
+
+          {ragUsed && ragSources.length ? (
+            <details className="agentx-rag-sources">
+              <summary>Local RAG sources</summary>
+              <ul>
+                {ragSources.map((source, index) => (
+                  <li key={`${source.title}-${source.url}-${index}`}>
+                    <span>{source.title || "Local knowledge"}</span>
+                    {source.url ? <small>{source.url}</small> : null}
+                  </li>
+                ))}
+              </ul>
             </details>
           ) : null}
 

@@ -72,13 +72,18 @@ export type QualityGateReport = {
   review_model?: string | null;
 };
 
+export type RagSourceRef = { title: string; url: string; trust?: string };
+
 export type ChatResponse = {
   role: "assistant";
   content: string;
   ts: number;
   retrieved?: RetrievedChunk[] | null;
   audit_tail?: AuditEntry[] | null;
-  sources?: { title: string; url: string; trust?: string }[] | null;
+  sources?: RagSourceRef[] | null;
+  rag_used?: boolean;
+  rag_hit_count?: number;
+  rag_sources?: RagSourceRef[] | null;
   verification_level?: string | null;
   verification?: { verdict: string; confidence: number; contradictions: string[] } | null;
   web?: { providers_used?: string[]; providers_failed?: { provider?: string; name?: string; error?: string }[]; fetch_blocked?: { url: string; reason: string }[] } | null;
@@ -266,6 +271,9 @@ export type Message = {
   ts: number;
   response_metrics?: ResponseMetrics | null;
   quality_gate?: QualityGateReport | null;
+  rag_used?: boolean | null;
+  rag_hit_count?: number | null;
+  rag_sources?: RagSourceRef[] | null;
 };
 export type Thread = {
   id: string;
@@ -918,7 +926,7 @@ export async function getThread(id: string): Promise<Thread> {
 
 export async function appendThreadMessage(
   threadId: string,
-  payload: { role: Message["role"]; content: string; response_metrics?: ResponseMetrics | null; quality_gate?: QualityGateReport | null }
+  payload: { role: Message["role"]; content: string; response_metrics?: ResponseMetrics | null; quality_gate?: QualityGateReport | null; rag_used?: boolean | null; rag_hit_count?: number | null; rag_sources?: RagSourceRef[] | null }
 ): Promise<Thread> {
   const res = await fetch(`${config.apiBase}/v1/threads/${threadId}/messages`, {
     method: "POST",

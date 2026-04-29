@@ -188,6 +188,51 @@ function buildCodeCanvasPrompt(payload: { scope: "selection" | "document"; conte
   ].join("\n");
 }
 
+function formatAttachmentSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return "0 B";
+  if (size < 1024) return `${Math.round(size)} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildComposerMessage(base: string, attachments: ComposerAttachment[], ragMode: ComposerRagMode): string {
+  const lines: string[] = [];
+  if (ragMode === "strict") {
+    lines.push("Use local RAG knowledge first. If the answer is not present in local knowledge, say what is missing and do not invent references.");
+  } else if (ragMode === "off") {
+    lines.push("Do not use local RAG knowledge for this reply unless I explicitly ask for it later.");
+  }
+  if (attachments.length) {
+    lines.push("Attached context:");
+    for (const item of attachments) {
+      lines.push(`- ${item.kind === "image" ? "Image" : "File"}: ${item.name} (${formatAttachmentSize(item.size)})`);
+      if (item.content) {
+        lines.push("```text");
+        lines.push(item.content.slice(0, 8000));
+        lines.push("```");
+      }
+    }
+  }
+  lines.push(base);
+  return lines.filter(Boolean).join("\n\n");
+}
+
+
+function shortBuildSha(value: string): string {
+  const trimmed = value.trim();
+  return trimmed.length > 8 ? trimmed.slice(0, 8) : trimmed;
+}
+
+function AgentXVersionBadge() {
+  const version = config.updateFeed.currentVersion || "local";
+  const sha = shortBuildSha(config.updateFeed.currentSha || "");
+  return (
+    <div className="agentx-version-badge" title={`AgentX build ${version}${sha ? ` @ ${sha}` : ""}`}>
+      AgentX {version}{sha ? ` @ ${sha}` : ""}
+    </div>
+  );
+}
+
 function buildActiveCanvasArtifact(canvas: CodeCanvasState) {
   if (!canvas.isOpen) return null;
   const content = (canvas.content || "").trim();
@@ -305,6 +350,16 @@ function threadSummary(thread: Thread): ThreadSummary {
 
 type MessageFeedback = "like" | "dislike";
 type MessageFeedbackMap = Record<string, MessageFeedback>;
+
+type ComposerAttachment = {
+  id: string;
+  name: string;
+  kind: "file" | "image";
+  size: number;
+  content?: string;
+};
+
+type ComposerRagMode = "auto" | "strict" | "off";
 const MESSAGE_FEEDBACK_KEY = "agentxweb.messageFeedback.v1";
 
 function loadMessageFeedback(): MessageFeedbackMap {
@@ -406,6 +461,11 @@ export function App() {
   const [handoffSuggestion, setHandoffSuggestion] = useState<HandoffSuggestion | null>(null);
 
   const [draft, setDraft] = useState("");
+  const [composerMenuOpen, setComposerMenuOpen] = useState(false);
+  const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
+  const [composerRagMode, setComposerRagMode] = useState<ComposerRagMode>("auto");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
@@ -1238,11 +1298,43 @@ ${script.content}
     controller.abort();
   }, []);
 
+  const addComposerFiles = useCallback(async (files: FileList | null, kind: "file" | "image") => {
+    if (!files?.length) return;
+    const next: ComposerAttachment[] = [];
+    for (const file of Array.from(files).slice(0, 6)) {
+      let content = "";
+      if (kind === "file" && file.size <= 500_000) {
+        try {
+          content = await file.text();
+        } catch {
+          content = "";
+        }
+      }
+      next.push({ id: createClientId("attachment"), name: file.name, kind, size: file.size, content });
+    }
+    setComposerAttachments((prev) => [...prev, ...next].slice(-8));
+    setComposerMenuOpen(false);
+  }, []);
+
+  const removeComposerAttachment = useCallback((id: string) => {
+    setComposerAttachments((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  const insertFileSearchPrompt = useCallback(() => {
+    setDraft((prev) => {
+      const prefix = "Search my allowed local project files for: ";
+      return prev.trim() ? `${prev}\n\n${prefix}` : prefix;
+    });
+    setComposerMenuOpen(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
   const send = useCallback(async (
     overrideText?: string,
     overrideSelection?: { provider: string; model: string; suppressHandoff?: boolean; codingPipeline?: CodingPipelineRequest | null; assistantLabel?: string; preserveCurrentSelection?: boolean }
   ) => {
-    const text = (overrideText ?? draft).trim();
+    const rawText = (overrideText ?? draft).trim();
+    const text = buildComposerMessage(rawText, composerAttachments, composerRagMode).trim();
     if (!text || sending) return;
 
     if (!statusOk) {
@@ -1304,6 +1396,7 @@ ${script.content}
     const wasDefaultTitle = !thread.title || thread.title === config.threadTitleDefault;
 
     setDraft("");
+    setComposerAttachments([]);
     setHandoffSuggestion(null);
     scheduleComposerFocus({ force: true });
 
@@ -1377,7 +1470,7 @@ ${script.content}
                 ? {
                     ...prev,
                     messages: prev.messages.map((message) =>
-                      message.id === localAssistant.id ? { ...message, content: event.content, response_metrics: event.response_metrics ?? null, quality_gate: event.quality_gate ?? null } : message
+                      message.id === localAssistant.id ? { ...message, content: event.content, response_metrics: event.response_metrics ?? null, quality_gate: event.quality_gate ?? null, rag_used: event.rag_used ?? null, rag_hit_count: event.rag_hit_count ?? null, rag_sources: event.rag_sources ?? null } : message
                     ),
                   }
                 : prev
@@ -1392,7 +1485,7 @@ ${script.content}
       setLastVerificationLevel(typeof reply.verification_level === "string" ? reply.verification_level : null);
       setLastVerification(reply.verification ?? null);
       setLastWebMeta(reply.web ?? null);
-      const t3 = await appendThreadMessage(t1.id, { role: "assistant", content: reply.content, response_metrics: reply.response_metrics ?? null, quality_gate: reply.quality_gate ?? null });
+      const t3 = await appendThreadMessage(t1.id, { role: "assistant", content: reply.content, response_metrics: reply.response_metrics ?? null, quality_gate: reply.quality_gate ?? null, rag_used: reply.rag_used ?? null, rag_hit_count: reply.rag_hit_count ?? null, rag_sources: reply.rag_sources ?? null });
       setActiveThread(t3);
       setThreads((prev) => [threadSummary(t3), ...prev.filter((x) => x.id !== t3.id)]);
       const assistantMessage = t3.messages[t3.messages.length - 1];
@@ -1470,6 +1563,8 @@ ${script.content}
     chatModel,
     chatProvider,
     codeCanvas,
+    composerAttachments,
+    composerRagMode,
     draft,
     modelOptions.openai,
     modelOptions.ollama,
@@ -2489,6 +2584,53 @@ ${script.content}
                       </div>
                     </div>
                   ) : null}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    onChange={(event) => void addComposerFiles(event.currentTarget.files, "file")}
+                  />
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    accept="image/*"
+                    onChange={(event) => void addComposerFiles(event.currentTarget.files, "image")}
+                  />
+                  <div className="agentx-composer-toolbar">
+                    <div className="agentx-composer-plus-wrap">
+                      <button
+                        type="button"
+                        className="agentx-composer-plus"
+                        onClick={() => setComposerMenuOpen((open) => !open)}
+                        disabled={!statusOk || sending}
+                        aria-label="Add context"
+                      >
+                        +
+                      </button>
+                      {composerMenuOpen ? (
+                        <div className="agentx-composer-menu">
+                          <button type="button" onClick={() => fileInputRef.current?.click()}>Attach file</button>
+                          <button type="button" onClick={() => imageInputRef.current?.click()}>Attach picture</button>
+                          <button type="button" onClick={insertFileSearchPrompt}>Search for a file</button>
+                          <button type="button" onClick={() => setComposerRagMode((mode) => mode === "strict" ? "auto" : "strict")}>RAG: {composerRagMode === "strict" ? "Strict" : "Auto"}</button>
+                          <button type="button" onClick={() => setComposerRagMode((mode) => mode === "off" ? "auto" : "off")}>Local RAG: {composerRagMode === "off" ? "Off" : "On"}</button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="agentx-composer-context">
+                      <span className={composerRagMode === "strict" ? "agentx-composer-context__rag agentx-composer-context__rag--strict" : composerRagMode === "off" ? "agentx-composer-context__rag agentx-composer-context__rag--off" : "agentx-composer-context__rag"}>
+                        RAG: {composerRagMode}
+                      </span>
+                      {composerAttachments.map((item) => (
+                        <button key={item.id} type="button" className="agentx-composer-chip" onClick={() => removeComposerAttachment(item.id)} title="Remove attachment">
+                          {item.kind === "image" ? "Picture" : "File"}: {item.name} ×
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <textarea
                     ref={textareaRef}
                     value={draft}
@@ -2597,6 +2739,7 @@ ${script.content}
           />
         ) : null}
       </div>
+      <AgentXVersionBadge />
     </div>
   );
 }
