@@ -4,6 +4,6 @@ window.__AGENTXWEB_CONFIG__ = {
     enabled: true,
     repo: "unbridledpc/AgentX",
     branch: "main",
-    currentVersion: "v0.2.3-rag-badge-crashfix"
+    currentVersion: "v0.2.5-composer-dedupe"
   }
 };
