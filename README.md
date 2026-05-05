@@ -33,9 +33,9 @@ AgentX is designed around one practical goal:
 | 🚩 Latest release | `v0.2.8-v10` |
 | 🏷️ Release name | **AgentX V10 — Health Dashboard and Smoke-Test Release** |
 | 🧱 Previous baseline | `v0.2.7-v9` |
-| 🌐 Web UI | `http://192.168.68.210:5173` |
-| 📘 API docs | `http://192.168.68.210:8000/docs` |
-| ❤️ Health endpoint | `http://192.168.68.210:8000/v1/health/full` |
+| 🌐 Web UI | `http://localhost:5173` |
+| 📘 API docs | `http://localhost:8000/docs` |
+| ❤️ Health endpoint | `http://localhost:8000/v1/health/full` |
 | 🧪 Smoke test | `./scripts/smoke-test-v10.sh` |
 
 ---
@@ -99,8 +99,8 @@ flowchart TB
     API --> Memory[🧠 Project Memory / RAG]
     API --> GitHub[🔀 GitHub Routes]
 
-    Models --> OllamaFast[⚡ Ollama Fast<br/>192.168.68.50:11434]
-    Models --> OllamaHeavy[🏋️ Ollama Heavy<br/>192.168.68.50:11435]
+    Models --> OllamaFast[⚡ Ollama Fast<br/><your-ollama-host>:11434]
+    Models --> OllamaHeavy[🏋️ Ollama Heavy<br/><your-ollama-host>:11435]
 
     Workbench --> Analyzer[🔍 Archive Analyzer]
     Validation --> Guardrails[🛡️ Runtime Guardrails]
@@ -261,8 +261,8 @@ Current homelab convention:
 
 | Slot | Endpoint | Purpose |
 |---|---|---|
-| ⚡ Default/Fast | `http://192.168.68.50:11434` | Fast local model path |
-| 🏋️ Heavy | `http://192.168.68.50:11435` | Larger/heavier model path |
+| ⚡ Default/Fast | `http://localhost:11434` | Fast local model path |
+| 🏋️ Heavy | `http://localhost:11435` | Larger/heavier model path |
 
 The Health dashboard reports endpoint reachability, host, port, latency, and errors.
 
@@ -371,10 +371,10 @@ Current homelab deployment:
 
 | Item | Value |
 |---|---|
-| VM IP | `192.168.68.210` |
-| Web UI | `http://192.168.68.210:5173` |
-| API docs | `http://192.168.68.210:8000/docs` |
-| Health | `http://192.168.68.210:8000/v1/health/full` |
+| VM IP | `<your-agentx-host>` |
+| Web UI | `http://localhost:5173` |
+| API docs | `http://localhost:8000/docs` |
+| Health | `http://localhost:8000/v1/health/full` |
 
 Systemd services:
 
@@ -752,19 +752,19 @@ sudo systemctl status agentx-api.service agentx-web.service --no-pager
 Open app:
 
 ```text
-http://192.168.68.210:5173
+http://localhost:5173
 ```
 
 Open API docs:
 
 ```text
-http://192.168.68.210:8000/docs
+http://localhost:8000/docs
 ```
 
 Open health endpoint:
 
 ```text
-http://192.168.68.210:8000/v1/health/full
+http://localhost:8000/v1/health/full
 ```
 
 ---

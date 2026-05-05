@@ -549,9 +549,9 @@ def _ollama_host_prompt(default_host: str) -> PromptSpec:
             "Normal examples:\n"
             "- 127.0.0.1\n"
             "- localhost\n"
-            "- 192.168.68.50\n"
+            "- <your-ollama-host>\n"
             "Power-user option:\n"
-            "- You can also paste a full URL like http://192.168.68.50:11434 and AgentX will use it directly."
+            "- You can also paste a full URL like http://localhost:11434 and AgentX will use it directly."
         ),
     )
 

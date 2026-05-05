@@ -37,7 +37,7 @@ def build_ollama_base_url(*, host_or_url: str, port: str | int | None = None) ->
         return normalize_ollama_base_url(raw)
     host = raw.strip().strip("/")
     if not host or any(ch.isspace() for ch in host) or host in {"http:", "https:"}:
-        raise ValueError("Enter a valid Ollama host or IP, such as 127.0.0.1 or 192.168.68.50.")
+        raise ValueError("Enter a valid Ollama host or IP, such as 127.0.0.1 or <your-ollama-host>.")
     port_text = str(port or "11434").strip()
     if not port_text.isdigit():
         raise ValueError("Ollama port must be a number such as 11434.")

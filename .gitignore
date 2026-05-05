@@ -184,3 +184,6 @@ AgentX/config/*.bak-*
 
 # AgentX runtime memory
 AgentX/memory/
+
+# AgentX API runtime data
+apps/api/agentx_api/data/

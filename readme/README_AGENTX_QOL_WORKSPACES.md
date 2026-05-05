@@ -34,7 +34,7 @@ Then hard refresh the browser with Ctrl+Shift+R.
 Open:
 
 ```text
-http://192.168.68.210:5173/workspaces.html
+http://localhost:5173/workspaces.html
 ```
 
 ## Safety

@@ -70,7 +70,7 @@ def _cors_allow_origins() -> list[str]:
         "tauri://localhost",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "http://192.168.68.210:5173",
+        "http://localhost:5173",
 
 
     ]

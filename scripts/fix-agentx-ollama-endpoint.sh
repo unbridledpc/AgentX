@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="${1:-$HOME/projects/AgentX}"
-FAST_URL="${2:-http://192.168.68.50:11434}"
+FAST_URL="${2:-http://localhost:11434}"
 MODEL="${3:-qwen3.5:9b}"
 CONFIG="$ROOT/AgentX/config/agentx.toml"
 

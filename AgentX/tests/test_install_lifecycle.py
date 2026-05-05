@@ -300,11 +300,11 @@ def test_build_ollama_base_url_from_host_and_default_port() -> None:
 
 
 def test_build_ollama_base_url_from_host_and_custom_port() -> None:
-    assert build_ollama_base_url(host_or_url="192.168.68.50", port="12456") == "http://192.168.68.50:12456"
+    assert build_ollama_base_url(host_or_url="192.0.2.50", port="12456") == "http://192.0.2.50:12456"
 
 
 def test_build_ollama_base_url_accepts_full_url() -> None:
-    assert build_ollama_base_url(host_or_url="http://192.168.68.50:11434") == "http://192.168.68.50:11434"
+    assert build_ollama_base_url(host_or_url="http://192.0.2.50:11434") == "http://192.0.2.50:11434"
     assert build_ollama_base_url(host_or_url="https://example.local:11434") == "https://example.local:11434"
 
 

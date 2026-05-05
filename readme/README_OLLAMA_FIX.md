@@ -4,7 +4,7 @@ Apply from the folder that contains your AgentX checkout, or copy the script ont
 
 ```bash
 unzip -o AgentX_ollama_endpoint_fix.zip
-bash scripts/fix-agentx-ollama-endpoint.sh ~/projects/AgentX http://192.168.68.50:11434 qwen3.5:9b
+bash scripts/fix-agentx-ollama-endpoint.sh ~/projects/AgentX http://localhost:11434 qwen3.5:9b
 ```
 
 This backs up `AgentX/config/agentx.toml`, sets the Ollama endpoint/model, adds a systemd override for the API service, tests `/api/tags`, then restarts AgentX.

@@ -289,13 +289,13 @@ export function SettingsPage(props: Props) {
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <div className="grid gap-2">
                     <div className={tokens.smallLabel}>Fast endpoint / small GPU</div>
-                    <input className={tokens.input} value={ollamaFastBaseUrl} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaFastBaseUrl: e.target.value }))} placeholder="http://192.168.68.50:11434" />
+                    <input className={tokens.input} value={ollamaFastBaseUrl} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaFastBaseUrl: e.target.value }))} placeholder="http://localhost:11434" />
                     <input className={tokens.input} value={ollamaFastModel} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaFastModel: e.target.value }))} placeholder="qwen2.5-coder:7b-4k-gpu" />
                     <input className={tokens.input} value={ollamaFastGpuPin} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaFastGpuPin: e.target.value }))} placeholder="CUDA_VISIBLE_DEVICES, e.g. 1" />
                   </div>
                   <div className="grid gap-2">
                     <div className={tokens.smallLabel}>Heavy endpoint / big GPU</div>
-                    <input className={tokens.input} value={ollamaHeavyBaseUrl} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaHeavyBaseUrl: e.target.value }))} placeholder="http://192.168.68.50:11435" />
+                    <input className={tokens.input} value={ollamaHeavyBaseUrl} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaHeavyBaseUrl: e.target.value }))} placeholder="http://localhost:11435" />
                     <input className={tokens.input} value={ollamaHeavyModel} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaHeavyModel: e.target.value }))} placeholder="devstral-small-2:24b-4k-gpu" />
                     <input className={tokens.input} value={ollamaHeavyGpuPin} disabled={loading || !ollamaMultiEndpointEnabled} onChange={(e) => setSettings((prev) => ({ ...prev, ollamaHeavyGpuPin: e.target.value }))} placeholder="CUDA_VISIBLE_DEVICES, e.g. 0" />
                   </div>
