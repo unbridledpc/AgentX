@@ -148,3 +148,36 @@ pytest-cache-files-*
 # Local patch/install artifacts
 /AgentX_Phase*.zip
 /apply_phase*.sh
+
+# AgentX local/runtime junk
+*.bak
+*.bak-*
+*.broken-*
+*.patch
+*.pid
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# Patch/application artifacts
+payload/
+backups/
+*.bak-v9-*/
+AgentXWeb.bak-*/
+AgentXWeb/.backups/
+
+# Frontend generated/dependency output
+AgentXWeb/node_modules/
+AgentXWeb/dist/
+AgentXWeb/.vite/
+
+# Python generated output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local config backups
+AgentX/config/*.bak-*
