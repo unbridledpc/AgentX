@@ -1048,6 +1048,32 @@ export async function sendChatMessage(
   return handle(res);
 }
 
+export type JudgmentRoute = "FAST" | "HOLD" | "BLOCK" | "DEEP" | "RECOVER";
+
+export type JudgmentClassifyResponse = {
+  ok: boolean;
+  route: JudgmentRoute;
+  endpoint: "default" | "fast" | "heavy" | null;
+  reason: string;
+  confidence: number;
+  signals: Record<string, unknown>;
+};
+
+export async function classifyJudgment(
+  text: string,
+  contextTurns = 0,
+  previousError = false,
+  signal?: AbortSignal
+): Promise<JudgmentClassifyResponse> {
+  const res = await fetch(`${config.apiBase}/v1/judgment/classify`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ text, context_turns: contextTurns, previous_error: previousError }),
+    signal,
+  });
+  return handle(res);
+}
+
 export async function streamChatMessage(
   args: {
     message: string;
