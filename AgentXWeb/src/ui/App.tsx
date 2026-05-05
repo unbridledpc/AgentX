@@ -28,6 +28,7 @@ import {
   deleteScript,
   saveSettings,
   streamChatMessage,
+  classifyJudgment,
   deleteThread,
   updateThreadTitle,
   updateThreadModel,
@@ -42,6 +43,7 @@ import {
   type ProviderErrorDetail,
   type AgentXSettings,
   type CodingPipelineRequest,
+  type JudgmentClassifyResponse,
   type DraftGenerateResponse,
   type DraftMode,
 } from "../api/client";
@@ -560,6 +562,9 @@ export function App() {
   const [handoffSuggestion, setHandoffSuggestion] = useState<HandoffSuggestion | null>(null);
 
   const [draft, setDraft] = useState("");
+  const [judgmentPreview, setJudgmentPreview] = useState<JudgmentClassifyResponse | null>(null);
+  const [judgmentPreviewError, setJudgmentPreviewError] = useState<string | null>(null);
+  const [judgmentPreviewLoading, setJudgmentPreviewLoading] = useState(false);
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
   const [taskReflectionOpen, setTaskReflectionOpen] = useState(false);
 
@@ -603,6 +608,46 @@ export function App() {
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const value = draft.trim();
+    if (!value || activeView !== "chat" || !statusOk) {
+      setJudgmentPreview(null);
+      setJudgmentPreviewError(null);
+      setJudgmentPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setJudgmentPreviewLoading(true);
+      setJudgmentPreviewError(null);
+      void classifyJudgment(
+        value,
+        activeThread?.messages?.length ?? 0,
+        Boolean(lastProviderError),
+        controller.signal
+      )
+        .then((result: JudgmentClassifyResponse) => {
+          setJudgmentPreview(result);
+          setJudgmentPreviewError(null);
+        })
+        .catch((error: unknown) => {
+          if ((error as Error)?.name === "AbortError") return;
+          setJudgmentPreview(null);
+          setJudgmentPreviewError((error as Error)?.message || "Judgment unavailable");
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setJudgmentPreviewLoading(false);
+        });
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [activeThread?.messages?.length, activeView, draft, lastProviderError, statusOk]);
+
   const feedRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
   const scrollRafRef = useRef<number | null>(null);
@@ -3245,6 +3290,33 @@ function rememberAgentXLatestPatchResponse(content: string) {
                     accept="image/*"
                     onChange={(event) => void addComposerFiles(event.currentTarget.files, "image")}
                   />
+                  {draft.trim() ? (
+                    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+                      <span className="font-semibold text-slate-200">Judgment:</span>
+                      {judgmentPreviewLoading ? (
+                        <span className="text-slate-500">checking...</span>
+                      ) : judgmentPreview ? (
+                        <>
+                          <span className={[
+                            "rounded-full px-2 py-0.5 font-bold",
+                            judgmentPreview.route === "BLOCK" ? "bg-rose-500/15 text-rose-200" :
+                            judgmentPreview.route === "DEEP" || judgmentPreview.route === "RECOVER" ? "bg-violet-500/15 text-violet-200" :
+                            judgmentPreview.route === "HOLD" ? "bg-amber-500/15 text-amber-200" :
+                            "bg-emerald-500/15 text-emerald-200"
+                          ].join(" ")}>
+                            {judgmentPreview.route}
+                          </span>
+                          <span>-&gt; {judgmentPreview.endpoint || "none"}</span>
+                          <span className="text-slate-500">{Math.round(judgmentPreview.confidence * 100)}%</span>
+                          <span className="min-w-0 flex-1 truncate text-slate-400" title={judgmentPreview.reason}>{judgmentPreview.reason}</span>
+                        </>
+                      ) : judgmentPreviewError ? (
+                        <span className="text-amber-200">{judgmentPreviewError}</span>
+                      ) : (
+                        <span className="text-slate-500">ready</span>
+                      )}
+                    </div>
+                  ) : null}
                   <div className="agentx-composer-toolbar">
                     <button
                       type="button"

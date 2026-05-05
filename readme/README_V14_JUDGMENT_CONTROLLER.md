@@ -58,3 +58,16 @@ python3 -m compileall AgentX/agentx apps/api/agentx_api apps/api/tests
 curl -s http://127.0.0.1:8000/v1/judgment/policy | python3 -m json.tool
 curl -s http://127.0.0.1:8000/v1/judgment/classify   -H 'Content-Type: application/json'   -d '{"text":"hello"}' | python3 -m json.tool
 ```
+
+## Frontend Preview
+
+The chat composer can call `/v1/judgment/classify` while the user types and show a non-blocking preview:
+
+```text
+Judgment: FAST -> fast
+Judgment: DEEP -> heavy
+Judgment: RECOVER -> heavy
+Judgment: BLOCK -> none
+```
+
+This preview does not automatically change routing yet. It is visibility-only for V14.
