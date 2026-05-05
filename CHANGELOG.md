@@ -1,3 +1,22 @@
+## 0.3.0-v12
+
+### Added
+- V12 workbench artifact endpoints for inventory, analysis files, report download, and inventory download.
+- Standalone Workbench Report Viewer page for browsing imported archive workspace reports.
+- V12 workbench UX documentation.
+
+### Changed
+- Bumped AgentXWeb release metadata to `0.3.0-v12`.
+- Added public-safe V12 runtime config examples.
+
+### Validation
+- Python compileall should pass.
+- AgentX V10 smoke test should pass.
+- Frontend typecheck, tests, and production build should pass.
+
+### Notes
+- V12 focuses on workbench usability without rewriting the existing large `workspaces.html` page.
+
 ## 0.2.8-v10
 
 ### Added

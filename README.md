@@ -30,8 +30,8 @@ AgentX is designed around one practical goal:
 
 | Item | Value |
 |---|---|
-| 🚩 Latest release | `v0.2.8-v10` |
-| 🏷️ Release name | **AgentX V10 — Health Dashboard and Smoke-Test Release** |
+| 🚩 Latest release | `v0.3.0-v12` |
+| 🏷️ Release name | **AgentX V12 — Workbench UX and Patch Workflow Polish** |
 | 🧱 Previous baseline | `v0.2.7-v9` |
 | 🌐 Web UI | `http://localhost:5173` |
 | 📘 API docs | `http://localhost:8000/docs` |
@@ -566,13 +566,13 @@ git push origin main
 | Tag | Description |
 |---|---|
 | `v0.2.7-v9` | Workbench stabilization and validation baseline |
-| `v0.2.8-v10` | Health dashboard and smoke-test release |
+| `v0.3.0-v12` | Health dashboard and smoke-test release |
 
 Create a tag:
 
 ```bash
-git tag -a v0.2.8-v10 -m "AgentX V10 health dashboard and smoke-test release"
-git push origin v0.2.8-v10
+git tag -a v0.3.0-v12 -m "AgentX V10 health dashboard and smoke-test release"
+git push origin v0.3.0-v12
 ```
 
 ---
@@ -605,7 +605,7 @@ gantt
 
 ## 📜 Release History
 
-### `v0.2.8-v10` — Health Dashboard and Smoke-Test Release
+### `v0.3.0-v12` — Health Dashboard and Smoke-Test Release
 
 Added:
 
@@ -784,3 +784,14 @@ AgentX is now in a strong position to evolve from local assistant into a full AI
 <p align="center">
   <strong>AgentX — local AI with real tools, real validation, and real project memory.</strong>
 </p>
+
+
+## V12 Workbench Report Viewer
+
+AgentX V12 adds a standalone workbench report viewer:
+
+```text
+/workbench-report-viewer.html
+```
+
+The viewer displays imported archive workspaces, final reports, inventory artifacts, and download/copy actions for workbench analysis output.
