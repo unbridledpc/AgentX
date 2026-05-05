@@ -38,7 +38,7 @@ export const config = {
     const repo = String(runtime?.repo ?? (import.meta as any).env?.VITE_AGENTX_UPDATE_REPO ?? "unbridledpc/AgentX").trim();
     const branch = String(runtime?.branch ?? (import.meta as any).env?.VITE_AGENTX_UPDATE_BRANCH ?? "main").trim();
     const currentSha = String(runtime?.currentSha ?? (import.meta as any).env?.VITE_AGENTX_BUILD_SHA ?? "").trim();
-    const currentVersion = String(runtime?.currentVersion ?? (import.meta as any).env?.VITE_AGENTX_APP_VERSION ?? "0.2.8-v10").trim();
+    const currentVersion = String(runtime?.currentVersion ?? (import.meta as any).env?.VITE_AGENTX_APP_VERSION ?? "0.3.0-v12").trim();
     const enabledRaw = runtime?.enabled ?? (import.meta as any).env?.VITE_AGENTX_UPDATE_CHECK_ENABLED ?? "true";
     const enabled = typeof enabledRaw === "boolean" ? enabledRaw : String(enabledRaw).toLowerCase() !== "false";
     return { enabled, repo, branch, currentSha, currentVersion };
