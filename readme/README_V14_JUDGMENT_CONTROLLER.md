@@ -71,3 +71,23 @@ Judgment: BLOCK -> none
 ```
 
 This preview does not automatically change routing yet. It is visibility-only for V14.
+
+## Local Auto Route Toggle
+
+V14 can keep auto-routing as a browser-local toggle:
+
+```text
+Auto Route: off/on
+```
+
+When enabled, the current judgment preview can choose a send-only route:
+
+- `FAST` -> Ollama fast model
+- `DEEP` -> Ollama heavy model
+- `RECOVER` -> Ollama heavy model
+- `HOLD` -> no automatic route change
+- `BLOCK` -> send is blocked with a local warning
+
+The toggle is stored in browser localStorage under `agentx.judgment.autoRoute.v1`.
+
+Auto Route is intentionally send-only for V14. It does not permanently change the selected model dropdown.

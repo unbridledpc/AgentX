@@ -565,6 +565,13 @@ export function App() {
   const [judgmentPreview, setJudgmentPreview] = useState<JudgmentClassifyResponse | null>(null);
   const [judgmentPreviewError, setJudgmentPreviewError] = useState<string | null>(null);
   const [judgmentPreviewLoading, setJudgmentPreviewLoading] = useState(false);
+  const [judgmentAutoRouteEnabled, setJudgmentAutoRouteEnabled] = useState(() => {
+    try {
+      return window.localStorage.getItem("agentx.judgment.autoRoute.v1") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
   const [taskReflectionOpen, setTaskReflectionOpen] = useState(false);
 
@@ -1864,9 +1871,42 @@ function rememberAgentXLatestPatchResponse(content: string) {
       return;
     }
 
+    if (judgmentAutoRouteEnabled && !overrideSelection && judgmentPreview?.route === "BLOCK") {
+      setSystemMessage("Judgment blocked this send because it looks destructive or high risk.");
+      return;
+    }
+
+    const judgmentRouteSelection = (() => {
+      if (!judgmentAutoRouteEnabled || overrideSelection || !judgmentPreview?.ok) return null;
+      if (!appSettings.ollamaMultiEndpointEnabled) return null;
+
+      const route = judgmentPreview.route;
+      const model =
+        route === "FAST"
+          ? appSettings.ollamaFastModel
+          : route === "DEEP" || route === "RECOVER"
+            ? appSettings.ollamaHeavyModel
+            : "";
+
+      const trimmedModel = String(model || "").trim();
+      if (!trimmedModel) return null;
+      if (modelOptions.ollama.length > 0 && !modelOptions.ollama.includes(trimmedModel)) return null;
+
+      return {
+        provider: "ollama",
+        model: trimmedModel,
+        assistantLabel: `${trimmedModel} · ${route}`,
+        preserveCurrentSelection: true,
+        suppressHandoff: false,
+        codingPipeline: null,
+      };
+    })();
+
+    const effectiveSelection = overrideSelection || judgmentRouteSelection;
+
     // Prevent obvious model/provider mismatches (most common source of 502s).
-    const provider = (overrideSelection?.provider || chatProvider || "stub").toLowerCase();
-    const effectiveModel = (overrideSelection?.model || chatModel || "stub").trim();
+    const provider = (effectiveSelection?.provider || chatProvider || "stub").toLowerCase();
+    const effectiveModel = (effectiveSelection?.model || chatModel || "stub").trim();
     if (provider === "openai" && modelOptions.openai.length > 0 && !modelOptions.openai.includes(effectiveModel)) {
       setSystemMessage("Selected OpenAI model is not in the discovered list. Pick a valid model from the dropdown.");
       return;
@@ -1890,7 +1930,7 @@ function rememberAgentXLatestPatchResponse(content: string) {
       }
     }
 
-    const shouldPersistSelection = Boolean(overrideSelection && !overrideSelection.preserveCurrentSelection);
+    const shouldPersistSelection = Boolean(effectiveSelection && !effectiveSelection.preserveCurrentSelection);
 
     if (shouldPersistSelection) {
       setChatProvider(provider);
@@ -1949,7 +1989,7 @@ function rememberAgentXLatestPatchResponse(content: string) {
 
       const controller = new AbortController();
       activeSendAbortRef.current = controller;
-      const activeModelLabel = overrideSelection?.assistantLabel || effectiveModel || "AgentX";
+      const activeModelLabel = effectiveSelection?.assistantLabel || effectiveModel || "AgentX";
       const localAssistant = {
         id: createClientId("assistant"),
         role: "assistant" as const,
@@ -1968,7 +2008,7 @@ function rememberAgentXLatestPatchResponse(content: string) {
         responseMode: "chat",
         unsafeEnabled: Boolean(unsafeStatus?.unsafe_enabled),
         activeArtifact: buildActiveCanvasArtifact(codeCanvas),
-        codingPipeline: overrideSelection?.codingPipeline ?? null,
+        codingPipeline: effectiveSelection?.codingPipeline ?? null,
         signal: controller.signal,
         onEvent: (event) => {
           if (event.event === "delta") {
@@ -2037,7 +2077,7 @@ function rememberAgentXLatestPatchResponse(content: string) {
           sourceMessageId: assistantMessage.id,
         });
       }
-      if (!overrideSelection?.suppressHandoff && shouldSuggestCodingHandoff(text)) {
+      if (!effectiveSelection?.suppressHandoff && shouldSuggestCodingHandoff(text)) {
         const targetModel = pickHeavyCodingModel(modelOptions.ollama, effectiveModel);
         if (targetModel) {
           const reviewModel = pickReviewModel(modelOptions.ollama, effectiveModel) ?? targetModel;
@@ -2086,9 +2126,14 @@ function rememberAgentXLatestPatchResponse(content: string) {
     chatModel,
     chatProvider,
     codeCanvas,
+    appSettings.ollamaFastModel,
+    appSettings.ollamaHeavyModel,
+    appSettings.ollamaMultiEndpointEnabled,
     composerAttachments,
     composerRagMode,
     draft,
+    judgmentAutoRouteEnabled,
+    judgmentPreview,
     modelOptions.openai,
     modelOptions.ollama,
     layoutSettings.showCodeCanvas,
@@ -3309,6 +3354,19 @@ function rememberAgentXLatestPatchResponse(content: string) {
                           <span>-&gt; {judgmentPreview.endpoint || "none"}</span>
                           <span className="text-slate-500">{Math.round(judgmentPreview.confidence * 100)}%</span>
                           <span className="min-w-0 flex-1 truncate text-slate-400" title={judgmentPreview.reason}>{judgmentPreview.reason}</span>
+                          <button
+                            type="button"
+                            className={[
+                              "rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                              judgmentAutoRouteEnabled
+                                ? "border-cyan-400/45 bg-cyan-400/10 text-cyan-100"
+                                : "border-slate-700 bg-slate-900/70 text-slate-400"
+                            ].join(" ")}
+                            onClick={() => setJudgmentAutoRouteEnabled((value) => !value)}
+                            title="When enabled, AgentX will use the judgment preview to choose fast/heavy for this send without changing the selected dropdown model."
+                          >
+                            Auto Route: {judgmentAutoRouteEnabled ? "on" : "off"}
+                          </button>
                         </>
                       ) : judgmentPreviewError ? (
                         <span className="text-amber-200">{judgmentPreviewError}</span>
