@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from agentx.workbench.archive_workspace import (
@@ -221,6 +221,61 @@ def get_upload_report(project_id: str) -> dict[str, Any]:
     if not p.exists():
         raise HTTPException(status_code=404, detail="Report not found")
     return {"ok": True, "path": str(p.resolve(False)), "content": p.read_text(encoding="utf-8", errors="replace")}
+
+
+
+
+@router.get("/uploads/{project_id}/inventory")
+def get_upload_inventory(project_id: str) -> dict[str, Any]:
+    p = _project_dir_or_404(project_id) / "analysis" / "inventory.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Inventory not found")
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8", errors="replace"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Inventory could not be parsed: {exc}") from exc
+    return {"ok": True, "path": str(p.resolve(False)), "inventory": payload}
+
+
+@router.get("/uploads/{project_id}/analysis-files")
+def get_upload_analysis_files(project_id: str) -> dict[str, Any]:
+    analysis = _project_dir_or_404(project_id) / "analysis"
+    if not analysis.exists():
+        raise HTTPException(status_code=404, detail="Analysis directory not found")
+    files: list[dict[str, Any]] = []
+    for item in sorted(analysis.glob("*")):
+        if item.is_file():
+            files.append({
+                "name": item.name,
+                "path": str(item.resolve(False)),
+                "size": item.stat().st_size,
+                "updated_at": item.stat().st_mtime,
+            })
+    return {"ok": True, "project_id": project_id, "analysis_dir": str(analysis.resolve(False)), "files": files}
+
+
+@router.get("/uploads/{project_id}/download/report")
+def download_upload_report(project_id: str) -> Response:
+    p = _project_dir_or_404(project_id) / "analysis" / "final_report.md"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Report not found")
+    return Response(
+        content=p.read_text(encoding="utf-8", errors="replace"),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{project_id}-final_report.md"'},
+    )
+
+
+@router.get("/uploads/{project_id}/download/inventory")
+def download_upload_inventory(project_id: str) -> Response:
+    p = _project_dir_or_404(project_id) / "analysis" / "inventory.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Inventory not found")
+    return Response(
+        content=p.read_text(encoding="utf-8", errors="replace"),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{project_id}-inventory.json"'},
+    )
 
 
 @router.delete("/uploads/{project_id}")
