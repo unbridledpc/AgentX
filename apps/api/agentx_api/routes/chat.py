@@ -31,6 +31,8 @@ from agentx_api.web_access.policy import WebPolicy
 from agentx_api.web_access.search import search as web_search
 from agentx_api.routes.threads import _read_thread, ensure_thread_owner
 from agentx_api.agentx_bridge import AgentXUnavailable, get_agent_for_thread, get_handle
+from agentx.workbench.archive_workspace import get_thread_workspace_context
+from agentx.workbench.archive_workspace import build_thread_workspace_context
 
 router = APIRouter(tags=["chat"])
 
@@ -234,6 +236,19 @@ def _ollama_generate(message: str, model: str) -> str:
         raise _provider_http_exception(exc) from exc
 
 
+
+
+def _augment_with_workspace_context(retrieved: str, thread_id: str | None, user_message: str, owner_id: str | None = None) -> str:
+    if not thread_id:
+        return retrieved
+    try:
+        ctx = build_thread_workspace_context(thread_id, user_message, owner_id=owner_id, max_chars=24000)
+    except Exception:
+        return retrieved
+    if not ctx:
+        return retrieved
+    return (retrieved + "\n\n" if retrieved else "") + ctx
+
 def _rag_store() -> RagStore:
     return RagStore(config.rag_db_path)
 
@@ -274,6 +289,35 @@ def _retrieve_rag(query: str) -> tuple[str, list[dict[str, str]], int]:
 
 def _build_retrieval_context(query: str) -> str:
     return _retrieve_rag(query)[0]
+
+
+def _append_workspace_context(retrieved: str, thread_id: str | None, user_message: str, *, owner_id: str | None = None) -> str:
+    if not thread_id:
+        return retrieved
+    try:
+        workspace_context = get_thread_workspace_context(thread_id, query=user_message, owner_id=owner_id)
+    except Exception:
+        workspace_context = ""
+    if not workspace_context:
+        return retrieved
+    return (retrieved + "\n\n" if retrieved else "") + workspace_context
+
+
+def _with_workspace_user_message(user_message: str, thread_id: str | None, *, owner_id: str | None = None) -> str:
+    if not thread_id:
+        return user_message
+    try:
+        workspace_context = get_thread_workspace_context(thread_id, query=user_message, owner_id=owner_id)
+    except Exception:
+        workspace_context = ""
+    if not workspace_context:
+        return user_message
+    return (
+        f"{user_message}\n\n"
+        "Attached archive workspace context for this chat thread:\n"
+        f"{workspace_context}\n\n"
+        "Use this uploaded archive workspace when answering. Do not claim you cannot access uploaded files."
+    )
 
 def _tool_rag_upsert(args: dict) -> dict:
     if not config.rag_enabled:
@@ -1327,7 +1371,8 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     ensure_thread_owner(thread_id, owner_id=user_id)
                 short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
                 retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
-
+                retrieved = _append_workspace_context(retrieved, thread_id, request.message, owner_id=user_id)
+        
                 if config.web_enabled:
                     urls = re.findall(r"https?://\S+", request.message or "")
                     urls = [u.rstrip(").,;!\"'") for u in urls][:3]
@@ -1497,7 +1542,8 @@ def chat_stream(request: ChatRequest, http: Request) -> StreamingResponse:
                     ensure_thread_owner(thread_id, owner_id=user_id)
                 short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
                 retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
-
+                retrieved = _append_workspace_context(retrieved, thread_id, request.message, owner_id=user_id)
+        
                 if config.web_enabled:
                     urls = re.findall(r"https?://\\S+", request.message or "")
                     urls = [u.rstrip(").,;!\"'") for u in urls][:3]
@@ -1644,9 +1690,13 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
             ollama_cfg["base_url"] = effective_ollama_base_url(settings)
             ollama_cfg["timeout_s"] = effective_ollama_request_timeout_s(settings)
             llm_cfg["ollama"] = ollama_cfg
+        agent_user_message = request.message
+        workspace_ctx = build_thread_workspace_context(effective_thread_id, request.message, owner_id=effective_user, max_chars=24000) if effective_thread_id else ""
+        if workspace_ctx:
+            agent_user_message = request.message + "\n\n" + workspace_ctx
         try:
             res = agent.chat(
-                user_message=request.message,
+                user_message=agent_user_message,
                 provider=provider,
                 model=model,
                 thread_id=effective_thread_id,
@@ -1693,7 +1743,7 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
             ensure_thread_owner(thread_id, owner_id=user_id)
         short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
         retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
-
+        
         messages: list[dict] = [
             {
                 "role": "system",
@@ -1735,7 +1785,7 @@ def chat(request: ChatRequest, http: Request) -> ChatResponse:
             ensure_thread_owner(thread_id, owner_id=user_id)
         short_term = _build_short_term_messages(thread_id, request.message, owner_id=user_id)
         retrieved, rag_sources, rag_hit_count = _retrieve_rag(request.message)
-
+        
         if config.ollama_tools_enabled:
             content = _ollama_chat_with_tools(
                 short_term=short_term, retrieved=retrieved, user_message=request.message, model=model

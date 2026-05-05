@@ -74,6 +74,10 @@ class ApiConfig:
     def __init__(self):
         self.host = _env("AGENTX_API_HOST", "127.0.0.1") or "127.0.0.1"
         self.port = int(_env("AGENTX_API_PORT", "8420") or "8420")
+        self.log_level = (_env("AGENTX_LOG_LEVEL", "INFO") or "INFO").strip().upper()
+        self.rate_limit_enabled = (_env("AGENTX_RATE_LIMIT_ENABLED", "false") or "false").strip().lower() in _TRUE_VALUES
+        self.rate_limit_requests = int(_env("AGENTX_RATE_LIMIT_REQUESTS", "120") or "120")
+        self.rate_limit_window_s = int(_env("AGENTX_RATE_LIMIT_WINDOW_S", "60") or "60")
         data_dir = Path(_env("AGENTX_API_DATA_DIR", str(Path(__file__).resolve().parent / "data")) or Path(__file__).resolve().parent / "data")
         data_dir.mkdir(parents=True, exist_ok=True)
         self.settings_path = data_dir / "settings.json"
@@ -197,6 +201,73 @@ class ApiConfig:
         if not password_sha256 and password:
             password_sha256 = hashlib.sha256(password.encode("utf-8")).hexdigest()
         return {user: password_sha256 or _LEGACY_DEFAULT_PASSWORD_SHA256}
+
+    def runtime_diagnostics(self) -> dict:
+        """Return startup/runtime configuration checks that are safe to expose locally."""
+        warnings: list[str] = []
+        errors: list[str] = []
+
+        def _exists(path: Path, label: str) -> None:
+            try:
+                if not path.exists():
+                    errors.append(f"{label} does not exist: {path}")
+            except Exception as exc:
+                errors.append(f"{label} is not accessible: {path} ({exc})")
+
+        if self.port < 1 or self.port > 65535:
+            errors.append(f"AGENTX_API_PORT must be between 1 and 65535, got {self.port}.")
+        if self.auth_enabled and not self.auth_users:
+            errors.append("Authentication is enabled but no users are configured.")
+        if not self.auth_enabled:
+            warnings.append("Authentication is disabled. Keep AgentX behind your LAN/firewall.")
+        if self.fs_enabled and self.fs_allow_all_paths:
+            warnings.append("Filesystem access is enabled with AGENTX_FS_ALLOW_ALL=true. This is powerful and risky.")
+        if self.fs_write_enabled and not self.fs_enabled:
+            warnings.append("Filesystem writes are enabled but filesystem access is disabled; write routes will still be blocked.")
+        if self.fs_delete_enabled and not self.fs_write_enabled:
+            warnings.append("Filesystem delete is enabled while filesystem write is disabled; verify this is intentional.")
+        if self.web_enabled and self.web_allow_all_hosts:
+            warnings.append("Web access is enabled for all hosts. Prefer AGENTX_WEB_ALLOWED_HOSTS for safer tool use.")
+        if self.web_enabled and not self.web_block_private_networks:
+            warnings.append("Private-network web blocking is disabled. This can expose internal services to model-driven requests.")
+        if self.rate_limit_enabled and self.rate_limit_requests < 10:
+            warnings.append("Rate limit is very low and may block normal UI polling.")
+
+        for path, label in (
+            (self.settings_path.parent, "settings directory"),
+            (self.threads_dir, "threads directory"),
+            (self.projects_dir, "projects directory"),
+            (self.scripts_dir, "scripts directory"),
+            (self.rag_db_path.parent, "RAG database directory"),
+        ):
+            _exists(path, label)
+
+        return {
+            "config": {
+                "host": self.host,
+                "port": self.port,
+                "auth_enabled": self.auth_enabled,
+                "fs_enabled": self.fs_enabled,
+                "fs_allow_all_paths": self.fs_allow_all_paths,
+                "fs_write_enabled": self.fs_write_enabled,
+                "fs_delete_enabled": self.fs_delete_enabled,
+                "web_enabled": self.web_enabled,
+                "web_allow_all_hosts": self.web_allow_all_hosts,
+                "web_block_private_networks": self.web_block_private_networks,
+                "rate_limit_enabled": self.rate_limit_enabled,
+                "rate_limit_requests": self.rate_limit_requests,
+                "rate_limit_window_s": self.rate_limit_window_s,
+                "ollama_base_url": self.ollama_base_url,
+                "settings_path": str(self.settings_path),
+            },
+            "warnings": warnings,
+            "errors": errors,
+        }
+
+    def assert_startup_safe(self) -> None:
+        report = self.runtime_diagnostics()
+        if report["errors"]:
+            raise RuntimeError("AgentX runtime configuration failed validation: " + "; ".join(report["errors"]))
 
 
 config = ApiConfig()

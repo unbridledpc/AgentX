@@ -14,6 +14,7 @@ import os
 import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 from agentx_api.auth import require_api_auth
 from agentx_api.routes.auth import router as auth_router
@@ -25,6 +26,7 @@ from agentx_api.routes.scripts import router as scripts_router
 from agentx_api.routes.fs import router as fs_router
 from agentx_api.routes.github import router as github_router
 from agentx_api.routes.ollama_updates import router as ollama_updates_router
+from agentx_api.routes.model_ops import router as model_ops_router
 from agentx_api.routes.project_memory import router as project_memory_router
 from agentx_api.routes.task_reflection import router as task_reflection_router
 from agentx_api.routes.rag import router as rag_router
@@ -33,6 +35,11 @@ from agentx_api.routes.settings import router as settings_router
 from agentx_api.routes.status import router as status_router
 from agentx_api.routes.threads import router as threads_router
 from agentx_api.routes.unsafe import router as unsafe_router
+from agentx_api.routes.workbench import router as workbench_router
+from agentx_api.routes.qol import router as qol_router
+from agentx_api.routes.runtime import router as runtime_router
+from agentx_api.routes.validation import router as validation_router
+from agentx_api.runtime_guard import RequestContextMiddleware, build_rate_limiter, configure_logging
 
 
 def _split_origins(raw: str | None) -> list[str]:
@@ -59,7 +66,7 @@ def _cors_allow_origins() -> list[str]:
         "http://127.0.0.1:5174",
         "http://tauri.localhost",
         "https://tauri.localhost",
-        "tauri://localhost"
+        "tauri://localhost",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://192.168.68.210:5173",
@@ -75,7 +82,12 @@ def _cors_allow_origins() -> list[str]:
     return origins
 
 def create_app() -> FastAPI:
+    configure_logging()
+    config.assert_startup_safe()
+    logging.getLogger("agentx_api.startup").info("AgentX API starting", extra={"path": "/startup"})
     app = FastAPI(title="AgentX API", version="0.0.1")
+
+    app.add_middleware(RequestContextMiddleware, rate_limiter=build_rate_limiter())
 
     # Dev-friendly CORS. Tighten for production.
     # Tauri webview origin commonly uses:
@@ -97,6 +109,8 @@ def create_app() -> FastAPI:
         return {"ok": True, "hint": "Try /v1/status"}
 
     app.include_router(status_router, prefix="/v1")
+    app.include_router(runtime_router, prefix="/v1")
+    app.include_router(validation_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(auth_router, prefix="/v1")
     app.include_router(chat_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(drafts_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
@@ -110,8 +124,11 @@ def create_app() -> FastAPI:
     app.include_router(agentx_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(github_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(ollama_updates_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
+    app.include_router(model_ops_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(project_memory_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
     app.include_router(task_reflection_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
+    app.include_router(workbench_router, prefix="/v1", dependencies=[Depends(require_api_auth)])
+    app.include_router(qol_router, prefix="/v1")
     return app
 
 
