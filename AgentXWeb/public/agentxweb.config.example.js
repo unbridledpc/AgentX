@@ -8,6 +8,6 @@ window.AGENTX_WEB_CONFIG = {
     repo: "unbridledpc/AgentX",
     branch: "main",
     currentSha: "",
-    currentVersion: "0.3.0-v12"
+    currentVersion: "0.3.1-v13"
   }
 };

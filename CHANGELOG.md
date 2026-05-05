@@ -1,4 +1,4 @@
-## 0.3.0-v12
+## 0.3.1-v13
 
 ### Added
 - V12 workbench artifact endpoints for inventory, analysis files, report download, and inventory download.
@@ -6,7 +6,7 @@
 - V12 workbench UX documentation.
 
 ### Changed
-- Bumped AgentXWeb release metadata to `0.3.0-v12`.
+- Bumped AgentXWeb release metadata to `0.3.1-v13`.
 - Added public-safe V12 runtime config examples.
 
 ### Validation

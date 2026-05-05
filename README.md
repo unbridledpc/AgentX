@@ -30,7 +30,7 @@ AgentX is designed around one practical goal:
 
 | Item | Value |
 |---|---|
-| 🚩 Latest release | `v0.3.0-v12` |
+| 🚩 Latest release | `v0.3.1-v13` |
 | 🏷️ Release name | **AgentX V12 — Workbench UX and Patch Workflow Polish** |
 | 🧱 Previous baseline | `v0.2.7-v9` |
 | 🌐 Web UI | `http://localhost:5173` |
@@ -566,13 +566,13 @@ git push origin main
 | Tag | Description |
 |---|---|
 | `v0.2.7-v9` | Workbench stabilization and validation baseline |
-| `v0.3.0-v12` | Health dashboard and smoke-test release |
+| `v0.3.1-v13` | Health dashboard and smoke-test release |
 
 Create a tag:
 
 ```bash
-git tag -a v0.3.0-v12 -m "AgentX V10 health dashboard and smoke-test release"
-git push origin v0.3.0-v12
+git tag -a v0.3.1-v13 -m "AgentX V10 health dashboard and smoke-test release"
+git push origin v0.3.1-v13
 ```
 
 ---
@@ -605,7 +605,7 @@ gantt
 
 ## 📜 Release History
 
-### `v0.3.0-v12` — Health Dashboard and Smoke-Test Release
+### `v0.3.1-v13` — Health Dashboard and Smoke-Test Release
 
 Added:
 
