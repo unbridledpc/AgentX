@@ -39,3 +39,23 @@ The bootstrap environment is not the main runtime. For `standard`, `server`, and
 ## Developer note: canonical Python package
 
 AgentX backend source now lives in the lowercase `agentx/` package. Do not patch old duplicate folders such as `AgentX/`, `core/`, `cli/`, `tools/`, `jobs/`, or `install/` at the source root. Run `python scripts/check_package_tree.py` before packaging or pushing.
+
+## Private Phase 3 Workbench / ZIP Analyzer
+
+This patched bundle includes an experimental read-only Workbench ZIP Analyzer. It imports a project/server ZIP into a sandbox, inventories source/config files, scans for syntax issues, risky patterns, and converted TFS placeholder work, then writes `final_report.md`.
+
+CLI:
+
+```bash
+agentx workbench import-zip /path/to/Server.zip --workspace work/workbench --name server-private-test
+```
+
+Web playground prototype:
+
+```text
+AgentXWeb/dist/playground.html
+```
+
+Docs: `docs/phase-3-workbench-zip-analyzer.md`
+
+Safety: v0.1 does not edit files, run project code, install dependencies, touch live folders, commit, or push.
