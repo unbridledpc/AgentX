@@ -4,7 +4,7 @@ window.__AGENTXWEB_CONFIG__ = {
     enabled: true,
     repo: "unbridledpc/AgentX",
     branch: "main",
-    currentVersion: "v0.2.6-draft-workspace"
+    currentVersion: "0.2.8-v10"
   }
 };
 
