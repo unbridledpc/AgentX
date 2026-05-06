@@ -1748,3 +1748,133 @@ export async function promoteTaskReflection(payload: {
   return handle<{ ok: boolean; entry_id: string; entry: unknown }>(res);
 }
 
+async function parseJsonResponse<T = unknown>(res: Response): Promise<T> {
+  const text = await res.text();
+  let data: unknown = null;
+  if (text.trim()) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new ApiError(text, { status: res.status, detail: text, providerError: null });
+    }
+  }
+  if (!res.ok) {
+    const detail = typeof data === "object" && data && "detail" in data
+      ? String((data as { detail?: unknown }).detail)
+      : text || res.statusText;
+    throw new ApiError(detail, { status: res.status, detail, providerError: null });
+  }
+  return data as T;
+}
+
+// --- Coding Zone API -------------------------------------------------------
+
+export type CodingZoneLanguageId = "python" | "javascript" | "typescript" | "shell" | "lua" | "cpp" | "c" | "go" | "rust" | "java" | "html" | "text";
+
+export type CodingZoneLanguage = {
+  id: CodingZoneLanguageId;
+  label: string;
+  runnable: boolean;
+  note?: string;
+};
+
+export type CodingZoneSession = {
+  id: string;
+  title: string;
+  language: CodingZoneLanguageId;
+  created_at: number;
+  updated_at: number;
+  default_file: string;
+  file_count?: number;
+};
+
+export type CodingZoneFileSummary = {
+  path: string;
+  size: number;
+  updated_at: number;
+};
+
+export type CodingZoneFile = {
+  path: string;
+  content: string;
+  size: number;
+};
+
+export type CodingZoneRunResult = {
+  id: string;
+  session_id: string;
+  path: string;
+  language: CodingZoneLanguageId;
+  command: string[];
+  exit_code: number;
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  timed_out: boolean;
+  created_at: number;
+};
+
+export async function listCodingZoneLanguages(): Promise<{ languages: CodingZoneLanguage[] }> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/languages`, { headers: authHeaders() });
+  return parseJsonResponse(res);
+}
+
+export async function listCodingZoneSessions(): Promise<{ sessions: CodingZoneSession[] }> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions`, { headers: authHeaders() });
+  return parseJsonResponse(res);
+}
+
+export async function createCodingZoneSession(payload: { title: string; language: CodingZoneLanguageId }): Promise<{ session: CodingZoneSession; files: CodingZoneFileSummary[] }> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJsonResponse(res);
+}
+
+export async function getCodingZoneSession(sessionId: string): Promise<{ session: CodingZoneSession; files: CodingZoneFileSummary[] }> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions/${encodeURIComponent(sessionId)}`, { headers: authHeaders() });
+  return parseJsonResponse(res);
+}
+
+export async function deleteCodingZoneSession(sessionId: string): Promise<{ ok: boolean; message?: string }> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE", headers: authHeaders() });
+  return parseJsonResponse(res);
+}
+
+export async function getCodingZoneFile(sessionId: string, path: string): Promise<CodingZoneFile> {
+  const qs = new URLSearchParams({ path });
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions/${encodeURIComponent(sessionId)}/file?${qs}`, { headers: authHeaders() });
+  return parseJsonResponse(res);
+}
+
+export async function writeCodingZoneFile(sessionId: string, payload: { path: string; content: string; language?: CodingZoneLanguageId }): Promise<{ ok: boolean; path: string; size: number; files: CodingZoneFileSummary[] }> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions/${encodeURIComponent(sessionId)}/file`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJsonResponse(res);
+}
+
+export async function deleteCodingZoneFile(sessionId: string, path: string): Promise<{ ok: boolean; files: CodingZoneFileSummary[] }> {
+  const qs = new URLSearchParams({ path });
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions/${encodeURIComponent(sessionId)}/file?${qs}`, { method: "DELETE", headers: authHeaders() });
+  return parseJsonResponse(res);
+}
+
+export async function runCodingZoneFile(sessionId: string, payload: { path: string; language: CodingZoneLanguageId; stdin?: string; timeout_s?: number }): Promise<CodingZoneRunResult> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions/${encodeURIComponent(sessionId)}/run`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJsonResponse(res);
+}
+
+export async function listCodingZoneRuns(sessionId: string): Promise<{ runs: CodingZoneRunResult[] }> {
+  const res = await fetch(`${config.apiBase}/v1/coding-zone/sessions/${encodeURIComponent(sessionId)}/runs`, { headers: authHeaders() });
+  return parseJsonResponse(res);
+}

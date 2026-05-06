@@ -59,6 +59,7 @@ import { KnowledgePage } from "./pages/KnowledgePage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { ValidationPage } from "./pages/ValidationPage";
+import { CodingZonePage } from "./pages/CodingZonePage";
 import { HealthPage } from "./pages/HealthPage";
 import { clearAuth, loadAuth, logout, tryLogin, type AuthState } from "./auth";
 import { ChatMessage } from "./components/ChatMessage";
@@ -480,7 +481,7 @@ function messageScriptTitle(thread: Thread | null, messageId: string, fallback =
 export function App() {
   const [auth, setAuth] = useState<AuthState | null>(() => loadAuth());
   const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
-  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts" | "knowledge" | "models" | "health" | "validation" | "workspaces">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "settings" | "customization" | "scripts" | "coding" | "knowledge" | "models" | "health" | "validation" | "workspaces">("chat");
   const [activeDeckMode, setActiveDeckMode] = useState<DeckModeId>("command");
   const [deckLayoutPrefs, setDeckLayoutPrefs] = useState(() => ({
     showModeRail: window.localStorage.getItem("agentx.deck.showModeRail") !== "false",
@@ -2629,6 +2630,7 @@ function rememberAgentXLatestPatchResponse(content: string) {
     { id: "drafts" as const, label: "Drafts", icon: "✎", title: "Open Draft Workspace" },
     { id: "memory" as const, label: "Memory", icon: "◈", title: "Knowledge and project memory" },
     { id: "scripts" as const, label: "Scripts", icon: "◇", title: "Saved code artifacts" },
+    { id: "coding" as const, label: "Coding", icon: "⌨", title: "Coding Zone scratch runner" },
     { id: "models" as const, label: "Models", icon: "◎", title: "Model and Ollama settings" },
     { id: "health" as const, label: "Health", icon: "✦", title: "System health and runtime diagnostics" },
     { id: "validation" as const, label: "Validate", icon: "✓", title: "Run workspace validation presets" },
@@ -2654,6 +2656,10 @@ function rememberAgentXLatestPatchResponse(content: string) {
     }
     if (id === "scripts") {
       setActiveView("scripts");
+      return;
+    }
+    if (id === "coding") {
+      setActiveView("coding");
       return;
     }
     if (id === "models") {
@@ -3200,6 +3206,16 @@ function rememberAgentXLatestPatchResponse(content: string) {
             <HealthPage statusOk={statusOk} onSystemMessage={setSystemMessage} />
           ) : activeView === "validation" ? (
             <ValidationPage statusOk={statusOk} onSystemMessage={setSystemMessage} />
+          ) : activeView === "coding" ? (
+            <CodingZonePage
+              statusOk={statusOk}
+              onSystemMessage={setSystemMessage}
+              onAskAgentX={(prompt) => {
+                setDraft(prompt);
+                setActiveView("chat");
+                setActiveDeckMode("command");
+              }}
+            />
           ) : activeView === "scripts" ? (
             renderScriptsView()
           ) : (
